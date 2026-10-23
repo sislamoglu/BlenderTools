@@ -64,7 +64,7 @@ def _format_data(data_line, data_line_type, spaces=5, data_hex=True):
             data = float_array_to_hex_string(data_line)
             # data = '  '.join([float_to_hex_string(x) for x in data_line])
         else:
-            data = ' '.join([str(x) for x in data_line])
+            data = ' '.join([str(round(x, 2)) if isinstance(x, float) else str(x) for x in data_line])
     elif data_line_type == _STR_TYPE:
         data = ' '.join(['"%s"' % x for x in data_line])
     else:
@@ -89,7 +89,8 @@ def _write_properties_and_data(fw, section, ind, print_info):
                 fw('%s%s: %s\n' % (ind, prop[0], _format_data(prop[1][1], type(prop[1][1][0]))))
             elif prop[1][0] == '&&':
                 if len(prop[1][1]) == 1:
-                    fw('%s%s: ( %s )\n' % (ind, prop[0], prop[1][1][0]))
+                    val = round(prop[1][1][0], 2) if isinstance(prop[1][1][0], float) else prop[1][1][0]
+                    fw('%s%s: ( %s )\n' % (ind, prop[0], val))
                 else:
                     fw('%s%s: ( %s )\n' % (ind, prop[0], _format_data(prop[1][1], type(prop[1][1][0]))))
             elif prop[1][0] == 'i':

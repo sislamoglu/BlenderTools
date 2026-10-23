@@ -25,6 +25,29 @@ from ...utils import get_scs_globals as _get_scs_globals
 from ...utils.printout import lprint
 
 
+def _outliners_show_active():
+    """Scrolls all outliners in all windows to the active object.
+
+    NOTE: Intended to be used as timer callback, thus returns None to be unregistered after first call.
+    """
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type != 'OUTLINER':
+                continue
+
+            region = next((region for region in area.regions if region.type == 'WINDOW'), None)
+            if region is None:
+                continue
+
+            try:
+                with bpy.context.temp_override(window=window, area=area, region=region):
+                    bpy.ops.outliner.show_active()
+            except RuntimeError as e:
+                lprint("D Outliner show active failed: %s", (e,))
+
+    return None
+
+
 class SCSExportHelper:
     """Class for implementation of SCS export routines, to take care of objects/collections visibilites and
     implemenet convinient methods for usage as parent class in export operators.
@@ -158,6 +181,10 @@ class SCSExportHelper:
 
         # unset name of current export scene since we are done
         SCSExportHelper.export_scene_name = None
+
+        # switching to export scene and back resets outliner scroll, so scroll back to active object,
+        # deferred via timer so outliners get to rebuild their trees for recovered scene first
+        bpy.app.timers.register(_outliners_show_active, first_interval=0.1)
 
     def execute_export(self, context, without_preview, menu_filepath=None):
         """Executes export.

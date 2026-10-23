@@ -55,6 +55,14 @@ class PrevModelsCache:
         else:
             return None
 
+    def get_locator_names(self):
+        """Gets snapshot of all cached locator names.
+
+        :return: list of locator names that have preview model cached
+        :rtype: list[str]
+        """
+        return list(self._prev_models)
+
     def init(self):
         """Initilize preview models cache to be able to control visibility layers for all the locators with preview models
         """

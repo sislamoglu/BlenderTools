@@ -54,6 +54,7 @@ class _Buffer:
         self.__draw_size = draw_size
         self.__shader = get_shader(shader_type)
         self.__data = {}
+        self.__batch = None
 
         for att_name in attr_names:
             self.__data[att_name] = []
@@ -90,18 +91,20 @@ class _Buffer:
         :type value: tuple[float] | tuple[int] | float | int
         """
         self.__data[attr_name].append(value)
+        self.__batch = None
 
     def clear(self):
         """Clears all entries in the buffer.
         """
         for attr_name in self.__data:
             self.__data[attr_name].clear()
+        self.__batch = None
 
-    def draw(self, uniforms, space_3d):
-        """Dispatches drawing for the buffer by creating and drawing batch.
+    def draw(self, clip_ubo, space_3d):
+        """Dispatches drawing for the buffer, (re)creating the batch only when buffer data changed.
 
-        :param uniforms: list of uniforms tuples to be sent to shader
-        :type uniforms: collections.Iterable[(str, type, bytearray, int, int)]
+        :param clip_ubo: uniform buffer holding clip planes data
+        :type clip_ubo: gpu.types.GPUUniformBuf
         :param space_3d: space 3D data of viewport to which buffers should be drawn
         :type space_3d: bpy.types.SpaceView3D
         """
@@ -117,34 +120,12 @@ class _Buffer:
         # gpu.state.point_size_set/line_width_set(size)
         self.__gpu_callback(self.__gpu_callback_param_before)
 
-        # bind shader
         self.__shader.bind()
+        self.__shader.uniform_block("clip_data", clip_ubo)
 
-        # fill the uniforms to binded shader
-        clip_planes_data = None
-        num_clip_planes = 0
-
-        for uniform_name, uniform_type, uniform_data, uniform_length, uniform_count in uniforms:
-            if uniform_name == "clip_planes":
-                clip_planes_data = uniform_data
-            elif uniform_name == "num_clip_planes":
-                num_clip_planes = uniform_data[0]
-
-        if clip_planes_data is None:
-            raise ValueError("Missing clip_planes in uniforms")
-
-        pad_planes = b'\x00' * (24 * 4) # 96 bytes
-        padded_clip_planes = bytearray(pad_planes)
-        padded_clip_planes[:len(clip_planes_data)] = clip_planes_data
-
-        ubo_data = struct.pack("24f 4i", *struct.unpack("24f", padded_clip_planes), num_clip_planes, 0, 0, 0)
-        ubo = gpu.types.GPUUniformBuf(ubo_data)
-
-        self.__shader.uniform_block("clip_data", ubo)
-
-        # create batch and dispatch draw
-        batch = batch_for_shader(self.__shader, self.__draw_type, self.__data)
-        batch.draw(self.__shader)
+        if self.__batch is None:
+            self.__batch = batch_for_shader(self.__shader, self.__draw_type, self.__data)
+        self.__batch.draw(self.__shader)
 
         self.__gpu_callback(self.__gpu_callback_param_after)
 
@@ -180,6 +161,8 @@ class _ViewsBufferHandler:
         """
         self.__current = None
         self.__buffers = {}
+        self.__clip_ubo_data = None
+        self.__clip_ubo = None
 
     def __get_buffers__(self, space_3d):
         """Return list of bufffers for given space 3d view. If none is given empty list is returned.
@@ -278,7 +261,29 @@ class _ViewsBufferHandler:
         :type space_3d: bpy.types.SpaceView3D
         """
 
-        # get clip planes as bytes array ready to be sent into shader
+        # if current view has local view use it's buffers otherwise select main ones
+        if space_3d.local_view:
+            buffers_key = space_3d.local_view
+        else:
+            buffers_key = None
+
+        buffers = self.__get_buffers__(buffers_key)
+        if not any(buffer.has_entries() for buffer in buffers):
+            return
+
+        clip_ubo = self.__get_clip_ubo__(space_3d)
+
+        for buffer in buffers:
+            buffer.draw(clip_ubo, space_3d)
+
+    def __get_clip_ubo__(self, space_3d):
+        """Gets clip planes uniform buffer for given space, reusing the previous one when clip planes didn't change.
+
+        :param space_3d: space 3D data of viewport to which buffers should be drawn
+        :type space_3d: bpy.types.SpaceView3D
+        :return: uniform buffer with clip planes data
+        :rtype: gpu.types.GPUUniformBuf
+        """
         clip_planes_linear = array('f')
         num_clip_planes = 0
         if space_3d.region_3d.use_clip_planes:
@@ -286,24 +291,17 @@ class _ViewsBufferHandler:
                 if clip_plane[0] == clip_plane[1] == clip_plane[2] == clip_plane[3] == 0.0:
                     continue
 
-                clip_planes_linear.extend(list(clip_plane))
+                clip_planes_linear.extend(clip_plane)
                 num_clip_planes += 1
 
-        # put uniforms together
-        uniforms = (
-            ("clip_planes", float, clip_planes_linear.tobytes(), 4, num_clip_planes),
-            ("num_clip_planes", int, array('i', (num_clip_planes,)), 1, 1)
-        )
+        clip_planes_linear.extend([0.0] * (24 - len(clip_planes_linear)))
+        ubo_data = struct.pack("24f 4i", *clip_planes_linear, num_clip_planes, 0, 0, 0)
 
-        # if current view has local view use it's buffers otherwise select main ones
-        if space_3d.local_view:
-            buffers_key = space_3d.local_view
-        else:
-            buffers_key = None
+        if ubo_data != self.__clip_ubo_data:
+            self.__clip_ubo_data = ubo_data
+            self.__clip_ubo = gpu.types.GPUUniformBuf(ubo_data)
 
-        # draw selected buffers
-        for buffer in self.__get_buffers__(buffers_key):
-            buffer.draw(uniforms, space_3d)
+        return self.__clip_ubo
 
 
 _views_buffer_handler = _ViewsBufferHandler()

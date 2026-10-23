@@ -226,8 +226,11 @@ def unload(locator):
 def fix_visibilites():
     """Fix preview model visibilites and collection assignemenet over all visible objects."""
 
-    for obj in bpy.context.view_layer.objects:
-        fix_visibility(obj)
+    view_layer_objects = bpy.context.view_layer.objects
+    for locator_name in _cache.get_locator_names():
+        obj = view_layer_objects.get(locator_name)
+        if obj:
+            fix_visibility(obj)
 
 
 def fix_visibility(locator):

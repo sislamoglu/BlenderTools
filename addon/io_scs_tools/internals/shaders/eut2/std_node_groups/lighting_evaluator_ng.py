@@ -83,12 +83,13 @@ def set_light_direction(sun_obj):
 
     rot_matrix = sun_obj.rotation_euler.to_matrix()
 
-    light_dir_n.inputs[0].default_value = rot_matrix[0][2]
-    light_dir_n.inputs[1].default_value = rot_matrix[1][2]
-    light_dir_n.inputs[2].default_value = rot_matrix[2][2]
+    for i in range(3):
+        if abs(light_dir_n.inputs[i].default_value - rot_matrix[i][2]) > 1e-6:
+            light_dir_n.inputs[i].default_value = rot_matrix[i][2]
 
     cam_to_world_n = get_node_group().nodes[_CAM_TO_WORLD_NODE]
-    cam_to_world_n.convert_from = "WORLD"
+    if cam_to_world_n.convert_from != "WORLD":
+        cam_to_world_n.convert_from = "WORLD"
 
 
 def reset_light_direction():

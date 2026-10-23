@@ -86,9 +86,6 @@ def _lightning_east_lock_draw_callback(reset):
     if abs(east_rotation - sun_obj.rotation_euler[2]) > 0.001:
         sun_obj.rotation_euler[2] = east_rotation
 
-    if abs(east_rotation - sun_obj.rotation_euler[2]) > 0.001:
-        sun_obj.rotation_euler[2] = east_rotation
-
     _lighting_evaluator_ng.set_light_direction(sun_obj)
 
 
