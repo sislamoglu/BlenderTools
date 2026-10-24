@@ -152,6 +152,113 @@ def get_children(obj, children=[], reset=True):
     return children
 
 
+def _collect_ids(value, collections, objects):
+    """Adds given value to collections or objects list if it's a collection or object.
+
+    :param value: any value
+    :type value: object
+    :param collections: list of collections to extend
+    :type collections: list[bpy.types.Collection]
+    :param objects: list of objects to extend
+    :type objects: list[bpy.types.Object]
+    """
+    if isinstance(value, bpy.types.Collection):
+        collections.append(value)
+    elif isinstance(value, bpy.types.Object):
+        objects.append(value)
+
+
+def _get_direct_instance_sources(obj):
+    """Gets collections and objects which given object directly instances, either by itself, by its particle systems
+    or uses in its geometry nodes modifiers (as these may instance them).
+
+    :param obj: Blender object
+    :type obj: bpy.types.Object
+    :return: instanced collections and instanced objects
+    :rtype: (list[bpy.types.Collection], list[bpy.types.Object])
+    """
+    collections = []
+    objects = []
+
+    if obj.instance_type == 'COLLECTION' and obj.instance_collection:
+        collections.append(obj.instance_collection)
+
+    for particle_system in obj.particle_systems:
+        settings = particle_system.settings
+        if settings.render_type == 'COLLECTION' and settings.instance_collection:
+            collections.append(settings.instance_collection)
+        elif settings.render_type == 'OBJECT' and settings.instance_object:
+            objects.append(settings.instance_object)
+
+    for modifier in obj.modifiers:
+        if modifier.type != 'NODES' or modifier.node_group is None:
+            continue
+
+        # modifier inputs
+        for key in modifier.keys():
+            _collect_ids(modifier[key], collections, objects)
+
+        # node inputs inside node group and its nested groups
+        node_groups_to_visit = [modifier.node_group]
+        visited_node_groups = set()
+        while node_groups_to_visit:
+            node_group = node_groups_to_visit.pop()
+            if node_group in visited_node_groups:
+                continue
+
+            visited_node_groups.add(node_group)
+
+            for node in node_group.nodes:
+                if node.type == 'GROUP' and node.node_tree:
+                    node_groups_to_visit.append(node.node_tree)
+
+                for socket in node.inputs:
+                    _collect_ids(getattr(socket, "default_value", None), collections, objects)
+
+    return collections, objects
+
+
+def get_instance_sources(objs):
+    """Gets all the collections and objects instanced by given objects via collection, particle or geometry nodes instancing
+    (including child collections and nested instances).
+
+    :param objs: Blender objects which may instance collections or objects
+    :type objs: collections.Iterable[bpy.types.Object]
+    :return: set of instanced collections and set of instanced objects
+    :rtype: (set[bpy.types.Collection], set[bpy.types.Object])
+    """
+    instanced_collections = set()
+    instanced_objs = set()
+
+    collections_to_visit = []
+    objs_to_visit = list(objs)
+    while collections_to_visit or objs_to_visit:
+
+        while objs_to_visit:
+            collections, objects = _get_direct_instance_sources(objs_to_visit.pop())
+            collections_to_visit.extend(collections)
+
+            for obj in objects:
+                if obj not in instanced_objs:
+                    instanced_objs.add(obj)
+                    objs_to_visit.append(obj)
+
+        while collections_to_visit:
+            collection = collections_to_visit.pop()
+            if collection in instanced_collections:
+                continue
+
+            instanced_collections.add(collection)
+            instanced_collections.update(collection.children_recursive)
+
+            for obj in collection.all_objects:
+                if obj not in instanced_objs:
+                    instanced_objs.add(obj)
+                    objs_to_visit.append(obj)
+
+    return instanced_collections, instanced_objs
+
+
 def get_siblings(obj):
     """Gets sibling objects of given object within SCS Game Object. If no siblings empty list is returned"""
     root = get_scs_root(obj)

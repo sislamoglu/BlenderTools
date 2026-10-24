@@ -21,7 +21,7 @@
 import os
 import collections
 from re import match
-from mathutils import Matrix, Vector, Color
+from mathutils import Matrix, Color
 from io_scs_tools.consts import Mesh as _MESH_consts
 from io_scs_tools.consts import Operators as _OP_consts
 from io_scs_tools.consts import PrefabLocators as _PL_consts
@@ -125,26 +125,15 @@ def execute(dirpath, name_suffix, root_object, armature_object, skeleton_filepat
 
         vert_groups = mesh_obj.vertex_groups
 
-        # calculate faces flip state from all ancestors of current object
-        scale_sign = 1
-        parent = mesh_obj
-        while parent and parent.scs_props.empty_object_type != "SCS_Root":
-
-            for scale_axis in parent.scale:
-                scale_sign *= scale_axis
-
-            for scale_axis in parent.delta_scale:
-                scale_sign *= scale_axis
-
-            parent = parent.parent
-
-        winding_order = 1
-        if scale_sign < 0:
-            winding_order = -1
-
         # calculate transformation matrix for current object (root object transforms are always subtracted!)
         mesh_transf_mat = root_object.matrix_world.inverted() @ mesh_obj.matrix_world
         """:type: mathutils.Matrix"""
+
+        # winding order has to be flipped if transformation mirrors the mesh
+        # (determinant takes into account whole hierarchy including parent inverse matrices and instancing transformations)
+        winding_order = 1
+        if mesh_transf_mat.to_3x3().determinant() < 0:
+            winding_order = -1
 
         # calculate vertex position transformation matrix for this object
         pos_transf_mat = (Matrix.Scale(scs_globals.export_scale, 4) @
@@ -152,12 +141,9 @@ def execute(dirpath, name_suffix, root_object, armature_object, skeleton_filepat
         """:type: mathutils.Matrix"""
 
         # calculate vertex normals transformation matrix for this object
-        # NOTE: as normals will be read from none export prepared mesh we have to add rotation and scale from mesh transformation matrix
-        _, rot, scale = mesh_transf_mat.decompose()
-        scale_matrix_x = Matrix.Scale(scale.x, 3, Vector((1, 0, 0))).to_4x4()
-        scale_matrix_y = Matrix.Scale(scale.y, 3, Vector((0, 1, 0))).to_4x4()
-        scale_matrix_z = Matrix.Scale(scale.z, 3, Vector((0, 0, 1))).to_4x4()
-        nor_transf_mat = _scs_to_blend_matrix().inverted() @ rot.to_matrix().to_4x4() @ scale_matrix_x @ scale_matrix_y @ scale_matrix_z
+        # NOTE: as normals will be read from none export prepared mesh we have to transform them with inverse transpose of mesh
+        # transformation matrix, so they stay perpendicular to surface also with non-uniform scale or shear
+        nor_transf_mat = _scs_to_blend_matrix().inverted() @ mesh_transf_mat.to_3x3().inverted_safe().transposed().to_4x4()
         """:type: mathutils.Matrix"""
 
         # get initial mesh and extra copy for normals only
