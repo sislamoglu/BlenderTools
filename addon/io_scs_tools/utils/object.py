@@ -171,6 +171,34 @@ def _collect_ids(value, collections, objects):
         objects.append(value)
 
 
+def _get_nodes_modifier_input_values(modifier):
+    """Gets input values of given geometry nodes modifier.
+
+    NOTE: since Blender 5.2 inputs are accessible through modifier properties interface by socket identifiers,
+    before they were stored as IDProperties of the modifier.
+
+    :param modifier: geometry nodes modifier
+    :type modifier: bpy.types.NodesModifier
+    :return: input values
+    :rtype: list
+    """
+    properties = getattr(modifier, "properties", None)
+    inputs = getattr(properties, "inputs", None)
+    if inputs is not None:
+        values = []
+        for item in modifier.node_group.interface.items_tree:
+            if item.item_type == 'SOCKET' and item.in_out == 'INPUT':
+                input_item = getattr(inputs, item.identifier, None)
+                if input_item is not None:
+                    values.append(getattr(input_item, "value", None))
+        return values
+
+    try:
+        return [modifier[key] for key in modifier.keys()]
+    except TypeError:  # modifier doesn't support IDProperties
+        return []
+
+
 def _get_direct_instance_sources(obj):
     """Gets collections and objects which given object directly instances, either by itself, by its particle systems
     or uses in its geometry nodes modifiers (as these may instance them).
@@ -198,8 +226,8 @@ def _get_direct_instance_sources(obj):
             continue
 
         # modifier inputs
-        for key in modifier.keys():
-            _collect_ids(modifier[key], collections, objects)
+        for value in _get_nodes_modifier_input_values(modifier):
+            _collect_ids(value, collections, objects)
 
         # node inputs inside node group and its nested groups
         node_groups_to_visit = [modifier.node_group]
