@@ -498,6 +498,7 @@ class GlobalDisplay(_ConfigSection):
         self.props = {
             "DisplayLocators": (int, get_default(scs_globals, 'display_locators'), 'display_locators'),
             "DisplayPreviewModels": (int, get_default(scs_globals, 'show_preview_models'), 'show_preview_models'),
+            "ShowSCSOutliner": (int, get_default(scs_globals, 'show_scs_outliner'), 'show_scs_outliner'),
             "LocatorSize": (float, get_default(scs_globals, 'locator_size'), 'locator_size'),
             "LocatorEmptySize": (float, get_default(scs_globals, 'locator_empty_size'), 'locator_empty_size'),
             "DisplayConnections": (int, get_default(scs_globals, 'display_connections'), 'display_connections'),

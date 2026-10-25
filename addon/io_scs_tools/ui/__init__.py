@@ -21,6 +21,7 @@
 from . import mesh
 from . import world
 from . import gizmos
+from . import outliner
 from . import object
 from . import output
 from . import shared
@@ -33,6 +34,7 @@ def register():
     # order matters for scs tools main menu items ordering, items registered soner will appear on top
     shared.register()
     tool_shelf.register()
+    outliner.register()
     workspace.register()
     world.register()
     object.register()
@@ -46,6 +48,7 @@ def unregister():
     gizmos.unregister()
     shared.unregister()
     tool_shelf.unregister()
+    outliner.unregister()
     workspace.unregister()
     world.unregister()
     object.unregister()

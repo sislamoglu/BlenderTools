@@ -20,13 +20,35 @@
 
 import bpy
 from bpy.props import (BoolProperty,
-                       EnumProperty, )
+                       EnumProperty,
+                       IntProperty, )
 
 
 class WorkspaceSCSProps(bpy.types.PropertyGroup):
     """
     SCS Tools Workspace Variables - ...Workspace.scs_props...
     """
+
+    def outliner_active_index_get(self):
+        """SCS Outliner lists objects from blend data, so active list item is index of active object in it."""
+        active_obj = bpy.context.view_layer.objects.active if bpy.context.view_layer else None
+        if active_obj is None:
+            return -1
+
+        return bpy.data.objects.find(active_obj.name)
+
+    def outliner_active_index_set(self, value):
+        """Selecting list item in SCS Outliner selects its object."""
+        if 0 <= value < len(bpy.data.objects):
+            bpy.ops.object.scs_tools_outliner_select(object_name=bpy.data.objects[value].name)
+
+    outliner_active_index: IntProperty(
+        name="SCS Outliner Active Item",
+        description="Active item of SCS Outliner",
+        get=outliner_active_index_get,
+        set=outliner_active_index_set,
+        options={'HIDDEN'},
+    )
 
     part_list_sorted: BoolProperty(
         name="Part List Sorted Alphabetically",

@@ -21,7 +21,9 @@
 import bpy
 from bpy.types import Panel
 from . import shared as _shared
+from . import outliner as _outliner
 from ..utils import object as _object_utils
+from ..utils import get_scs_globals as _get_scs_globals
 from ..consts import Icons as _ICONS_consts
 from ..consts import LampTools as _LT_consts
 from ..consts import Operators as _OP_consts
@@ -78,6 +80,21 @@ class SCS_TOOLS_PT_ToolShelf(_ToolShelfBlDefs, Panel):
             row = col.row(align=True)
             row.operator('mesh.scs_tools_start_vcoloring', text="VColoring", icon='GROUP_VCOL')
             row.operator('mesh.scs_tools_rebake_vcoloring', text="", icon='FILE_REFRESH')
+
+
+class SCS_TOOLS_PT_Outliner(_ToolShelfBlDefs, Panel):
+    """
+    Creates a SCS Outliner panel in the SCS Tools tab, listing SCS Game Objects as tree with SCS types icons.
+    """
+    bl_label = "SCS Outliner"
+
+    @classmethod
+    def poll(cls, context):
+        # optional panel, when disabled it's not drawn at all
+        return _get_scs_globals().show_scs_outliner
+
+    def draw(self, context):
+        _outliner.draw_outliner(self.layout, context)
 
 
 class SCS_TOOLS_PT_ConvexBlDefs(_ToolShelfBlDefs, Panel):
@@ -618,6 +635,7 @@ class SCS_TOOLS_PT_VertexColorStatsTool(_ToolShelfBlDefs, Panel):
 
 classes = (
     SCS_TOOLS_PT_ToolShelf,
+    SCS_TOOLS_PT_Outliner,
     SCS_TOOLS_PT_ConvexBlDefs,
     SCS_TOOLS_PT_Visibility,
     SCS_TOOLS_PT_DisplayMethods,
@@ -636,6 +654,7 @@ def register():
 
     from .. import SCS_TOOLS_MT_MainMenu
     SCS_TOOLS_MT_MainMenu.append_sidebar_entry("Sidebar - Tool Shelf", SCS_TOOLS_PT_ToolShelf.__name__)
+    SCS_TOOLS_MT_MainMenu.append_sidebar_entry("Sidebar - SCS Outliner", SCS_TOOLS_PT_Outliner.__name__)
     SCS_TOOLS_MT_MainMenu.append_sidebar_entry("Sidebar - Convex", SCS_TOOLS_PT_ConvexBlDefs.__name__)
     SCS_TOOLS_MT_MainMenu.append_sidebar_entry("Sidebar - Visibility Tools", SCS_TOOLS_PT_Visibility.__name__)
     SCS_TOOLS_MT_MainMenu.append_sidebar_entry("Sidebar - Display Methods", SCS_TOOLS_PT_DisplayMethods.__name__)

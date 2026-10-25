@@ -187,6 +187,7 @@ class SCS_TOOLS_PT_DisplaySettings(_WorkspacePanelBlDefs, Panel):
         row.prop(scs_globals, 'info_text_color')
         layout.prop(scs_globals, 'base_paint_color')
         layout.prop(scs_globals, 'show_preview_models')
+        layout.prop(scs_globals, 'show_scs_outliner')
 
 
 class SCS_TOOLS_PT_LocatorsDisplay(_WorkspacePanelBlDefs, Panel):

@@ -2795,6 +2795,129 @@ class SCS_TOOLS_OT_AddObject(bpy.types.Operator):
         return self.execute(context)
 
 
+class Outliner:
+    """
+    Wrapper class for better navigation in file
+    """
+
+    class SCS_TOOLS_OT_OutlinerSelect(bpy.types.Operator):
+        """Selects object from SCS Outliner, the same way as Blender Outliner does."""
+        bl_label = "Select"
+        bl_idname = "object.scs_tools_outliner_select"
+        bl_description = "Select object (Ctrl to extend selection, Shift to select range from active object)"
+        bl_options = {'UNDO', 'INTERNAL'}
+
+        object_name: StringProperty(options={'HIDDEN'})
+        mode: EnumProperty(
+            items=(
+                ('SET', "Set", "Select only this object"),
+                ('EXTEND', "Extend", "Toggle selection of this object"),
+                ('RANGE', "Range", "Select range from active object to this object"),
+            ),
+            default='SET',
+            options={'HIDDEN', 'SKIP_SAVE'},
+        )
+
+        def execute(self, context):
+            from io_scs_tools.internals import outliner as _outliner
+
+            obj = bpy.data.objects.get(self.object_name)
+            view_layer = context.view_layer
+
+            if obj is None or obj.name not in view_layer.objects:
+                return {'CANCELLED'}
+
+            active_obj = view_layer.objects.active
+
+            if self.mode == 'RANGE' and active_obj and active_obj != obj:
+                order = _outliner.get_displayed_order()
+                if active_obj.name in order and obj.name in order:
+                    start, end = sorted((order.index(active_obj.name), order.index(obj.name)))
+                    for obj_name in order[start:end + 1]:
+                        range_obj = bpy.data.objects.get(obj_name)
+                        if range_obj and not range_obj.hide_select:
+                            _object_utils.select_set(range_obj, True)
+                    return {'FINISHED'}
+
+            if obj.hide_select:
+                return {'CANCELLED'}
+
+            if self.mode == 'EXTEND':
+                if obj.select_get():
+                    _object_utils.select_set(obj, False)
+                    return {'FINISHED'}
+            else:
+                for sel_obj in context.selected_objects:
+                    _object_utils.select_set(sel_obj, False)
+
+            _object_utils.select_set(obj, True)
+            view_layer.objects.active = obj
+            return {'FINISHED'}
+
+        def invoke(self, context, event):
+            if event.shift:
+                self.mode = 'RANGE'
+            elif event.ctrl:
+                self.mode = 'EXTEND'
+            return self.execute(context)
+
+    class SCS_TOOLS_OT_OutlinerToggleExpand(bpy.types.Operator):
+        """Expands or collapses SCS Outliner item."""
+        bl_label = "Expand/Collapse"
+        bl_idname = "object.scs_tools_outliner_toggle_expand"
+        bl_description = "Expand/collapse item (Shift to expand/collapse all child items too)"
+        bl_options = {'INTERNAL'}
+
+        object_name: StringProperty(options={'HIDDEN'})
+        recursive: BoolProperty(default=False, options={'HIDDEN', 'SKIP_SAVE'})
+
+        def execute(self, context):
+            from io_scs_tools.internals import outliner as _outliner
+
+            obj = bpy.data.objects.get(self.object_name)
+            if obj is None:
+                return {'CANCELLED'}
+
+            expanded = not _outliner.is_expanded(obj)
+            objects = [obj] + (list(obj.children_recursive) if self.recursive else [])
+            for item_obj in objects:
+                _outliner.set_expanded(item_obj, expanded)
+
+            for area in context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+            return {'FINISHED'}
+
+        def invoke(self, context, event):
+            self.recursive = event.shift
+            return self.execute(context)
+
+    class SCS_TOOLS_OT_OutlinerToggleHide(bpy.types.Operator):
+        """Hides or unhides object from SCS Outliner, the same way as Blender Outliner eye does."""
+        bl_label = "Hide/Unhide"
+        bl_idname = "object.scs_tools_outliner_toggle_hide"
+        bl_description = "Hide/unhide object in viewport (Shift to hide/unhide its children too)"
+        bl_options = {'UNDO', 'INTERNAL'}
+
+        object_name: StringProperty(options={'HIDDEN'})
+        recursive: BoolProperty(default=False, options={'HIDDEN', 'SKIP_SAVE'})
+
+        def execute(self, context):
+            obj = bpy.data.objects.get(self.object_name)
+            if obj is None or obj.name not in context.view_layer.objects:
+                return {'CANCELLED'}
+
+            hide = not obj.hide_get()
+            objects = [obj] + (list(obj.children_recursive) if self.recursive else [])
+            for item_obj in objects:
+                _object_utils.hide_set(item_obj, hide)
+            return {'FINISHED'}
+
+        def invoke(self, context, event):
+            self.recursive = event.shift
+            return self.execute(context)
+
+
 class SCS_TOOLS_OT_BlankOperator(bpy.types.Operator):
     """Blank Operator."""
     bl_label = "Blank Operator"
@@ -2893,6 +3016,10 @@ classes = (
     Variant.SCS_TOOLS_OT_DeSelectObjectsWithVariant,
     Variant.SCS_TOOLS_OT_SwitchObjectsWithVariant,
     Variant.SCS_TOOLS_OT_MoveActiveVariant,
+
+    Outliner.SCS_TOOLS_OT_OutlinerSelect,
+    Outliner.SCS_TOOLS_OT_OutlinerToggleExpand,
+    Outliner.SCS_TOOLS_OT_OutlinerToggleHide,
 
     SCS_TOOLS_OT_AddObject,
     SCS_TOOLS_OT_BlankOperator,

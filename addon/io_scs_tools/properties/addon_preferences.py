@@ -638,6 +638,15 @@ class SCSGlobals(bpy.types.PropertyGroup):
         if not self.config_update_lock:
             _preview_models.update()
 
+    def show_scs_outliner_update(self, context):
+        from ..internals import outliner as _outliner
+
+        _config_container.update_item_in_file('GlobalDisplay.ShowSCSOutliner', int(self.show_scs_outliner))
+
+        # don't keep any outliner handlers or caches around, if it's not used
+        if not self.show_scs_outliner:
+            _outliner.disable()
+
     def base_paint_color_update(self, context):
         from ..internals.shaders import set_base_paint_color
 
@@ -933,6 +942,13 @@ class SCSGlobals(bpy.types.PropertyGroup):
         description="Show preview models for locators",
         default=True,
         update=show_preview_models_update
+    )
+
+    show_scs_outliner: BoolProperty(
+        name="Show SCS Outliner",
+        description="Show SCS Outliner panel in SCS Tools tab of 3D view sidebar, listing SCS Game Objects as tree with SCS types icons",
+        default=False,
+        update=show_scs_outliner_update
     )
 
     base_paint_color: FloatVectorProperty(
