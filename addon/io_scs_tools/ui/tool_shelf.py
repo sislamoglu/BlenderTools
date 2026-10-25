@@ -72,6 +72,8 @@ class SCS_TOOLS_PT_ToolShelf(_ToolShelfBlDefs, Panel):
             row.operator('object.scs_tools_create_scs_root', text="", icon='SYNTAX_OFF').use_dialog = True
             row = col.row(align=True)
             row.operator('object.scs_tools_relocate_scs_roots', icon="CON_LOCLIKE")
+            row = col.row(align=True)
+            row.operator('object.scs_tools_move_scs_roots', icon="EMPTY_ARROWS")
 
             col.separator(factor=0.5)
 

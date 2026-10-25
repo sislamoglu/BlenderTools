@@ -22,7 +22,8 @@
 import bmesh
 import bpy
 import re
-from bpy.props import BoolProperty, StringProperty, IntProperty, EnumProperty
+from bpy.props import BoolProperty, StringProperty, IntProperty, EnumProperty, FloatVectorProperty
+from mathutils import Vector
 from io_scs_tools.consts import Look as _LOOK_consts
 from io_scs_tools.consts import Part as _PART_consts
 from io_scs_tools.consts import Variant as _VARIANT_consts
@@ -2605,6 +2606,78 @@ class SCSRoot:
 
             return {'FINISHED'}
 
+    class SCS_TOOLS_OT_MoveSCSRoots(bpy.types.Operator):
+        """Moves SCS Root objects (together with their children) by given offset."""
+        bl_label = "Move Roots"
+        bl_idname = "object.scs_tools_move_scs_roots"
+        bl_description = "Move all SCS Root objects in the scene (together with their children) by given X, Y, Z offset"
+        bl_options = {'REGISTER', 'UNDO'}
+
+        offset: FloatVectorProperty(
+            name="Offset",
+            description="X, Y, Z offset by which SCS Root objects are moved (in world space)",
+            default=(0.0, 0.0, 0.0),
+            subtype='TRANSLATION',
+            unit='LENGTH',
+            size=3,
+        )
+        only_selected: BoolProperty(
+            name="Selected Only",
+            description="Move only selected SCS Root objects",
+            default=False,
+        )
+
+        @classmethod
+        def poll(cls, context):
+            return context.mode == 'OBJECT' and context.scene is not None
+
+        def draw(self, context):
+            layout = self.layout
+            layout.use_property_split = True
+            layout.use_property_decorate = False
+
+            col = layout.column(align=True)
+            col.prop(self, "offset", index=0, text="X")
+            col.prop(self, "offset", index=1, text="Y")
+            col.prop(self, "offset", index=2, text="Z")
+            layout.prop(self, "only_selected")
+
+        def execute(self, context):
+            lprint("D " + self.bl_label + "...")
+
+            roots = [obj for obj in context.scene.objects
+                     if obj.type == 'EMPTY' and obj.scs_props.empty_object_type == 'SCS_Root' and not (self.only_selected and not obj.select_get())]
+            roots_set = set(roots)
+
+            moved_roots_count = 0
+            for root_obj in roots:
+
+                # nested SCS Roots are moved together with their parent root, moving them again would move them twice
+                parent = root_obj.parent
+                while parent and parent not in roots_set:
+                    parent = parent.parent
+                if parent:
+                    continue
+
+                # linked data from libraries can't be moved
+                if root_obj.library and not root_obj.override_library:
+                    lprint("W SCS Root %r is linked from library, it can't be moved!", (root_obj.name,))
+                    continue
+
+                # move in world space, children follow their parent
+                root_obj.matrix_world.translation = root_obj.matrix_world.translation + Vector(self.offset)
+                moved_roots_count += 1
+
+            if moved_roots_count == 0:
+                self.report({'WARNING'}, "No SCS Root Objects to move!")
+            else:
+                self.report({'INFO'}, "Moved %i SCS Root object(s) by (%g, %g, %g)." % ((moved_roots_count,) + tuple(self.offset)))
+
+            return {'FINISHED'}
+
+        def invoke(self, context, event):
+            return context.window_manager.invoke_props_dialog(self)
+
 
 class Animation:
     """
@@ -3004,6 +3077,7 @@ classes = (
     SCSRoot.SCS_TOOLS_OT_IsolateObjectsWithinSCSRoot,
     SCSRoot.SCS_TOOLS_OT_ViewAllObjectsWithinSCSRoot,
     SCSRoot.SCS_TOOLS_OT_RelocateSCSRoot,
+    SCSRoot.SCS_TOOLS_OT_MoveSCSRoots,
 
     ShadowCasters.SCS_TOOLS_OT_SelectShadowCasters,
     ShadowCasters.SCS_TOOLS_OT_ShowShadowCastersAsWire,
