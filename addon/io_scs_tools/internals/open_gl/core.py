@@ -28,6 +28,7 @@ from io_scs_tools.internals.open_gl import locators as _locators
 from io_scs_tools.internals.open_gl import primitive as _primitive
 from io_scs_tools.internals.open_gl.cache import LocatorsCache
 from io_scs_tools.internals.open_gl.storage import terrain_points as _terrain_points_storage
+from io_scs_tools.internals import local_view as _local_view
 from io_scs_tools.internals.connections.wrappers import collection as _connections_wrapper
 from io_scs_tools.utils import info as _info_utils
 from io_scs_tools.utils import object as _object_utils
@@ -488,6 +489,9 @@ def draw_custom_3d_elements(mode):
     :param mode: drawing mode for custom 3D elements (can be: 'Normal' or 'X-ray')
     :type mode: str
     """
+    # isolating SCS Root in local view should isolate whole SCS Game Object
+    _local_view.check_space(bpy.context.space_data)
+
     # if empties are disabled in this viewport ... our locators and connections should be too
     if not bpy.context.space_data.show_object_viewport_empty:
         return
