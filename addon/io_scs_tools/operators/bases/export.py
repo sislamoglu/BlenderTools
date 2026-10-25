@@ -122,6 +122,35 @@ class SCSExportHelper:
 
         return self.cached_objects
 
+    @staticmethod
+    def ensure_object_mode(objs_to_export):
+        """Switches given objects to object mode, so that their current edits are applied and they get exported.
+
+        :param objs_to_export: objects for export
+        :type objs_to_export: list[bpy.types.Object]
+        """
+        context = bpy.context
+
+        # switch active object (and all others in multi object editing) to object mode
+        if context.mode != 'OBJECT' and bpy.ops.object.mode_set.poll():
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+        # switch any remaining export object, which might be left in other mode while not being active
+        for obj in objs_to_export:
+            if obj.mode == 'OBJECT':
+                continue
+
+            try:
+                with context.temp_override(active_object=obj, object=obj, selected_objects=[obj], selected_editable_objects=[obj]):
+                    bpy.ops.object.mode_set(mode='OBJECT')
+            except RuntimeError as e:
+                lprint("W Object %r couldn't be switched to object mode before export: %s", (obj.name, e))
+
+            if obj.mode != 'OBJECT':
+                lprint("W Object %r is still in %r mode and will be skipped on export!", (obj.name, obj.mode))
+            else:
+                lprint("I Object %r was switched to object mode for export.", (obj.name,))
+
     def init(self):
         """Init routine to create export scene, link all exprt objects to it and unhide objects so they can be seen in preview and exported properly.
         The problem is that depsgraph doesn't apply modifiers if object is hidden (directly or via collections).
@@ -132,6 +161,9 @@ class SCSExportHelper:
         # we have to get object to export now, because creating new scene
         # will invalidate context and selected objects within context are lost.
         objs_to_export = self.get_objects_for_export()
+
+        # objects in edit, paint or other modes would be skipped and their edits not exported, so switch them to object mode first
+        self.ensure_object_mode(objs_to_export)
 
         # create export scene
         self.scene = bpy.data.scenes.new("SCS Export")
