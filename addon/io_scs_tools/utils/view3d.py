@@ -137,3 +137,89 @@ def tag_redraw_all_regions():
         for area in window.screen.areas:
             for region in area.regions:
                 region.tag_redraw()
+
+
+def get_shape_hit_depth(lines, tris, region, region_3d, mouse_co, radius):
+    """Gets depth along the view ray under the mouse, at which given shape is hit.
+
+    Triangles are hit by ray intersection, lines are hit when closer to the mouse than given radius in pixels.
+
+    :param lines: lines vertices positions in world space (each two vertices make a line)
+    :type lines: list[tuple]
+    :param tris: triangles vertices positions in world space (each three vertices make a triangle)
+    :type tris: list[tuple]
+    :param region: 3D view region
+    :type region: bpy.types.Region
+    :param region_3d: 3D view region data
+    :type region_3d: bpy.types.RegionView3D
+    :param mouse_co: mouse position in region coordinates
+    :type mouse_co: mathutils.Vector
+    :param radius: lines picking radius in pixels
+    :type radius: float
+    :return: depth along view ray of the closest hit; None if shape isn't hit
+    :rtype: float | None
+    """
+    from mathutils import Vector
+    from mathutils.geometry import intersect_ray_tri, intersect_point_line
+    from bpy_extras.view3d_utils import region_2d_to_origin_3d, region_2d_to_vector_3d, location_3d_to_region_2d
+
+    ray_origin = region_2d_to_origin_3d(region, region_3d, mouse_co)
+    ray_dir = region_2d_to_vector_3d(region, region_3d, mouse_co)
+
+    depths = []
+
+    for i in range(0, len(tris) - 2, 3):
+        hit = intersect_ray_tri(Vector(tris[i]), Vector(tris[i + 1]), Vector(tris[i + 2]), ray_dir, ray_origin, False)
+        if hit is not None:
+            depths.append((hit - ray_origin).dot(ray_dir))
+
+    for i in range(0, len(lines) - 1, 2):
+        start, end = Vector(lines[i]), Vector(lines[i + 1])
+        start_2d = location_3d_to_region_2d(region, region_3d, start)
+        end_2d = location_3d_to_region_2d(region, region_3d, end)
+        if start_2d is None or end_2d is None:
+            continue
+
+        closest_2d, factor = intersect_point_line(mouse_co, start_2d, end_2d)
+        factor = min(max(factor, 0.0), 1.0)
+        if (start_2d.lerp(end_2d, factor) - mouse_co).length <= radius:
+            depths.append((start.lerp(end, factor) - ray_origin).dot(ray_dir))
+
+    return min(depths) if depths else None
+
+
+def get_selectable_object_hit_depth(context, region, region_3d, mouse_co):
+    """Gets depth along the view ray under the mouse, at which closest selectable and visible object geometry is hit.
+    Objects which can't be selected don't occlude, same as by Blender selection.
+
+    :param context: Blender context
+    :type context: bpy.types.Context
+    :param region: 3D view region
+    :type region: bpy.types.Region
+    :param region_3d: 3D view region data
+    :type region_3d: bpy.types.RegionView3D
+    :param mouse_co: mouse position in region coordinates
+    :type mouse_co: mathutils.Vector
+    :return: depth along view ray of the closest hit; None if no selectable object is hit
+    :rtype: float | None
+    """
+    from bpy_extras.view3d_utils import region_2d_to_origin_3d, region_2d_to_vector_3d
+
+    ray_origin = region_2d_to_origin_3d(region, region_3d, mouse_co)
+    ray_dir = region_2d_to_vector_3d(region, region_3d, mouse_co)
+    depsgraph = context.evaluated_depsgraph_get()
+
+    origin = ray_origin
+    for _ in range(32):
+        is_hit, location, _, _, obj, _ = context.scene.ray_cast(depsgraph, origin, ray_dir)
+        if not is_hit:
+            return None
+
+        obj = obj.original
+        if not obj.hide_select and obj.visible_get():
+            return (location - ray_origin).dot(ray_dir)
+
+        # continue ray behind not selectable object
+        origin = location + ray_dir * 1e-4
+
+    return None

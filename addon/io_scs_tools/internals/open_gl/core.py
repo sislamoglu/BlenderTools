@@ -394,12 +394,13 @@ def fill_buffers(object_list):
 
     # clear buffers
     _primitive.clear_buffers()
+    _primitive.clear_locators_shapes()
 
     # reset any set active buffer, switch back to main ones
     _primitive.set_active_buffers(None)
 
-    # fill buffers for main view
-    _fill_active_buffers(prefab_locators, model_locators, collision_locators)
+    # fill buffers for main view (capturing locators shapes for selection gizmos)
+    _fill_active_buffers(prefab_locators, model_locators, collision_locators, capture_shape=True)
 
     # extra buffers filling for each local view
     for space in _view3d_utils.get_spaces_with_local_view():
@@ -427,7 +428,26 @@ def fill_buffers(object_list):
         _fill_active_buffers(local_prefab_locators, local_model_locators, local_collision_locators)
 
 
-def _fill_active_buffers(prefab_locators, model_locators, collision_locators):
+def _fill_locator(draw_function, obj, scs_globals, capture_shape):
+    """Fill given locator into active buffers with given draw function, colored by its selection state.
+
+    :param draw_function: locator draw function taking locator object and scs globals
+    :type draw_function: callable
+    :param obj: locator object
+    :type obj: bpy.types.Object
+    :param scs_globals: SCS Tools globals
+    :type scs_globals: io_scs_tools.properties.addon_preferences.SCSGlobals
+    :param capture_shape: should locator shape be captured for selection gizmos?
+    :type capture_shape: bool
+    """
+    _primitive.begin_locator(obj, capture_shape)
+    try:
+        draw_function(obj, scs_globals)
+    finally:
+        _primitive.end_locator()
+
+
+def _fill_active_buffers(prefab_locators, model_locators, collision_locators, capture_shape=False):
     """Fill active buffers with given locator dictionaries.
 
     :param prefab_locators: prefab locators that should be filled into active buffers
@@ -436,6 +456,8 @@ def _fill_active_buffers(prefab_locators, model_locators, collision_locators):
     :type model_locators: dict[bpy.types.Object]
     :param collision_locators: collision locators that should be filled into active buffers
     :type collision_locators: dict[bpy.types.Object]
+    :param capture_shape: should locators shapes be captured for selection gizmos?
+    :type capture_shape: bool
     """
     scs_globals = _get_scs_globals()
 
@@ -451,13 +473,13 @@ def _fill_active_buffers(prefab_locators, model_locators, collision_locators):
     if scs_globals.display_locators:
 
         for obj in prefab_locators.values():
-            _locators.prefab.draw_prefab_locator(obj, scs_globals)
+            _fill_locator(_locators.prefab.draw_prefab_locator, obj, scs_globals, capture_shape)
 
         for obj in model_locators.values():
-            _locators.model.draw_model_locator(obj, scs_globals)
+            _fill_locator(_locators.model.draw_model_locator, obj, scs_globals, capture_shape)
 
         for obj in collision_locators.values():
-            _locators.collider.draw_collision_locator(obj, scs_globals)
+            _fill_locator(_locators.collider.draw_collision_locator, obj, scs_globals, capture_shape)
 
 
 def draw_custom_3d_elements(mode):

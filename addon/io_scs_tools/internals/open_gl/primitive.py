@@ -18,6 +18,7 @@
 
 # Copyright (C) 2013-2019: SCS Software
 
+import bpy
 import blf
 import gpu
 import struct
@@ -308,6 +309,90 @@ _views_buffer_handler = _ViewsBufferHandler()
 """Instace of views buffers handler to be able to have custom handlers for local views."""
 
 
+class _LocatorDrawing:
+    """Drawing state of the locator currently being filled into the buffers."""
+
+    color_override = None
+    """:type tuple | None: Color used instead of original lines and points colors (selection or active color of the theme)."""
+    captured_lines = None
+    """:type list | None: List to which lines vertices positions of current locator are captured."""
+    captured_tris = None
+    """:type list | None: List to which triangles vertices positions of current locator are captured."""
+
+
+_locators_shapes = {}
+"""Captured shapes of locators as tuple of lines vertices positions (each two vertices make a line) and
+triangles vertices positions (each three vertices make a triangle), used for locators selection gizmos."""
+_locators_shapes_version = 0
+"""Version of captured locators shapes, incremented each time shapes are cleared."""
+
+
+def _get_selection_color(obj):
+    """Gets theme selection color for given object as Blender uses it for drawing objects in 3D view.
+
+    :param obj: Blender object
+    :type obj: bpy.types.Object
+    :return: active color if object is selected and active, selected color if object is only selected; None otherwise
+    :rtype: tuple | None
+    """
+    try:
+        if not obj.select_get():
+            return None
+    except RuntimeError:  # object not in current view layer
+        return None
+
+    theme = bpy.context.preferences.themes[0].view_3d
+    if obj == bpy.context.view_layer.objects.active:
+        color = theme.object_active
+    else:
+        color = theme.object_selected
+
+    return color[0], color[1], color[2], 1.0
+
+
+def begin_locator(obj, capture_shape):
+    """Begins filling of given locator into buffers. Lines and points are colored by locator selection state and
+    drawn lines and triangles can be captured as locator shape for locator selection gizmos.
+
+    NOTE: should be followed by end_locator once locator is filled.
+
+    :param obj: locator object
+    :type obj: bpy.types.Object
+    :param capture_shape: should shape of this locator be captured?
+    :type capture_shape: bool
+    """
+    _LocatorDrawing.color_override = _get_selection_color(obj)
+
+    if capture_shape:
+        _LocatorDrawing.captured_lines = []
+        _LocatorDrawing.captured_tris = []
+        _locators_shapes[obj.name] = (_LocatorDrawing.captured_lines, _LocatorDrawing.captured_tris)
+
+
+def end_locator():
+    """Ends filling of locator into buffers."""
+    _LocatorDrawing.color_override = None
+    _LocatorDrawing.captured_lines = None
+    _LocatorDrawing.captured_tris = None
+
+
+def clear_locators_shapes():
+    """Clears captured locators shapes."""
+    global _locators_shapes_version
+
+    _locators_shapes.clear()
+    _locators_shapes_version += 1
+
+
+def get_locators_shapes():
+    """Gets captured locators shapes.
+
+    :return: version of captured shapes and dictionary of locators names and their shapes (lines and triangles vertices positions)
+    :rtype: (int, dict[str, (list[tuple], list[tuple])])
+    """
+    return _locators_shapes_version, _locators_shapes
+
+
 def clear_buffers():
     """Clears all drawing buffers we have.
     """
@@ -343,6 +428,9 @@ def append_tris_vertex(pos, color):
     :param color: color of the vertex, has to be of size 4 and fromat: (r, g, b, a)
     :type color: mathutils.Vector | bpy.types.bpy_prop_collection | tuple
     """
+    if _LocatorDrawing.captured_tris is not None:
+        _LocatorDrawing.captured_tris.append(tuple(pos))
+
     _views_buffer_handler.append_tris_vertex(pos, color)
 
 
@@ -358,6 +446,12 @@ def append_line_vertex(pos, color, is_strip=False, is_stipple=False):
     :param is_stipple: should line be stippled?
     :type is_stipple: bool
     """
+    if _LocatorDrawing.color_override:
+        color = _LocatorDrawing.color_override
+
+    if _LocatorDrawing.captured_lines is not None:
+        _LocatorDrawing.captured_lines.append(tuple(pos))
+
     _views_buffer_handler.append_line_vertex(pos, color, is_stipple=is_stipple)
 
     if is_strip:
@@ -374,6 +468,9 @@ def append_point_vertex(pos, color, size):
     :param size: size in which point should be drawn (5.0 and 12.0 currently supported!)
     :type size: float
     """
+    if _LocatorDrawing.color_override:
+        color = _LocatorDrawing.color_override
+
     _views_buffer_handler.append_point_vertex(pos, color, size)
 
 

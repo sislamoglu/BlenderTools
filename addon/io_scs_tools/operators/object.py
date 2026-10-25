@@ -2175,6 +2175,87 @@ class Locators:
                         _object_utils.select_set(obj, False)
                 return {'FINISHED'}
 
+        class SCS_TOOLS_OT_SelectLocator(bpy.types.Operator):
+            """Selects locator by click on its shape in 3D view (used by locators selection gizmos)."""
+            bl_label = "Select Locator"
+            bl_idname = "object.scs_tools_select_locator"
+            bl_description = "Select locator (Shift to extend selection)"
+            bl_options = {'UNDO', 'INTERNAL'}
+
+            PICK_RADIUS = 6.0
+            """Lines picking radius in pixels (scaled by interface scale)."""
+
+            locator_name: StringProperty(options={'HIDDEN'})
+            extend: BoolProperty(default=False, options={'HIDDEN', 'SKIP_SAVE'})
+
+            def is_occluded(self, context, event):
+                """Tells if locator shape under the mouse is occluded by other selectable object geometry in front of it.
+
+                :param context: Blender context
+                :type context: bpy.types.Context
+                :param event: mouse event
+                :type event: bpy.types.Event
+                :return: True if other object is in front of locator under the mouse; False otherwise
+                :rtype: bool
+                """
+                from mathutils import Vector
+                from io_scs_tools.internals.open_gl import primitive as _primitive
+
+                region = context.region
+                region_3d = context.region_data
+                space = context.space_data
+
+                # as in Blender, X-ray selects through everything
+                if region is None or region_3d is None or space.shading.show_xray:
+                    return False
+
+                locator_shape = _primitive.get_locators_shapes()[1].get(self.locator_name)
+                if locator_shape is None:
+                    return False
+
+                mouse_co = Vector((event.mouse_region_x, event.mouse_region_y))
+                radius = self.PICK_RADIUS * context.preferences.system.ui_scale
+
+                locator_depth = _view3d_utils.get_shape_hit_depth(*locator_shape, region, region_3d, mouse_co, radius)
+                if locator_depth is None:
+                    return False
+
+                object_depth = _view3d_utils.get_selectable_object_hit_depth(context, region, region_3d, mouse_co)
+                return object_depth is not None and object_depth < locator_depth
+
+            def execute(self, context):
+                obj = bpy.data.objects.get(self.locator_name)
+                view_layer = context.view_layer
+
+                if obj is None or obj.name not in view_layer.objects or obj.hide_select:
+                    return {'CANCELLED'}
+
+                # same as Blender click selection: shift click on active object deselects it
+                if self.extend:
+                    if obj.select_get() and view_layer.objects.active == obj:
+                        _object_utils.select_set(obj, False)
+                        return {'FINISHED'}
+                else:
+                    for sel_obj in context.selected_objects:
+                        _object_utils.select_set(sel_obj, False)
+
+                _object_utils.select_set(obj, True)
+                view_layer.objects.active = obj
+                return {'FINISHED'}
+
+            def invoke(self, context, event):
+                # other object is in front of the locator, use Blender click selection instead
+                # NOTE: passing event through doesn't work from gizmo operators, thus execute it directly
+                if self.is_occluded(context, event):
+                    bpy.ops.view3d.select('EXEC_DEFAULT',
+                                          location=(event.mouse_region_x, event.mouse_region_y),
+                                          toggle=event.shift,
+                                          deselect_all=not event.shift)
+                    return {'CANCELLED'}
+
+                self.extend = event.shift
+                return self.execute(context)
+
         class SCS_TOOLS_OT_SwitchAllLocators(bpy.types.Operator, _BaseViewOperator):
             """Switch visibility all locators."""
             bl_label = "View All Locators"
@@ -2749,6 +2830,7 @@ classes = (
     Locators.Collision.SCS_TOOLS_OT_SwitchCollisionLocators,
     Locators.Commons.SCS_TOOLS_OT_SelectPreviewModelPath,
     Locators.Commons.SCS_TOOLS_OT_SelectAllLocators,
+    Locators.Commons.SCS_TOOLS_OT_SelectLocator,
     Locators.Commons.SCS_TOOLS_OT_SwitchAllLocators,
     Locators.Model.SCS_TOOLS_OT_FixModelLocatorHookups,
     Locators.Model.SCS_TOOLS_OT_SelectModelLocatorsWithSameHookup,

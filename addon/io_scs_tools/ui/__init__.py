@@ -20,6 +20,7 @@
 
 from . import mesh
 from . import world
+from . import gizmos
 from . import object
 from . import output
 from . import shared
@@ -38,9 +39,11 @@ def register():
     mesh.register()
     material.register()
     output.register()
+    gizmos.register()
 
 
 def unregister():
+    gizmos.unregister()
     shared.unregister()
     tool_shelf.unregister()
     workspace.unregister()
