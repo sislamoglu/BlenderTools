@@ -42,7 +42,6 @@ from io_scs_tools.utils import get_scs_globals as _get_scs_globals
 from io_scs_tools.utils.convert import change_to_scs_uv_coordinates as _change_to_scs_uv_coordinates
 from io_scs_tools.utils.convert import get_scs_transformation_components as _get_scs_transformation_components
 from io_scs_tools.utils.convert import scs_to_blend_matrix as _scs_to_blend_matrix
-from io_scs_tools.utils.convert import hookup_name_to_hookup_id as _hookup_name_to_hookup_id
 from io_scs_tools.utils.printout import lprint
 
 
@@ -492,17 +491,8 @@ def execute(dirpath, name_suffix, root_object, armature_object, skeleton_filepat
                    "Model locators must have positive scale!", (loc_obj.name, root_object.name))
             continue
 
-        hookup_string = loc_obj.scs_props.locator_model_hookup
-        hookup_id = _hookup_name_to_hookup_id(hookup_string)
-        if hookup_id:
-            hookup_payload = _object_utils.get_hookup_payload_string(loc_obj)
-
-            if len(hookup_payload) > 0:
-                hookup_id += '#'
-                hookup_id += hookup_payload
-
-        if hookup_string != "" and hookup_id is None:
-            lprint("W Model locator %r has unexpected hookup value %r.", (loc_obj.name, loc_obj.scs_props.locator_model_hookup))
+        # hookup ID with payload (e.g. lamp height or camera FOV override)
+        hookup_id = _object_utils.get_hookup_export_string(loc_obj)
 
         # create locator object for export
         name = _name_utils.tokenize_name(loc_obj.name)

@@ -689,6 +689,21 @@ class ObjectSCSTools(bpy.types.PropertyGroup):
         default=0.0,
     )
 
+    locator_model_fov_override: BoolProperty(
+        name="FOV Override",
+        description="Override field of view of the camera (only for model locators with name starting with \"cam_\")",
+        default=False,
+    )
+
+    locator_model_fov_override_value: FloatProperty(
+        name="FOV",
+        description="Field of view used by the camera when FOV override is enabled",
+        default=22.0,
+        min=0.001,
+        soft_max=180.0,
+        precision=3,
+    )
+
     def locator_collider_type_items(self, context):
         return [
             ('Box', "Box", "Box collider type", get_icon(_ICON_TYPES.loc_collider_box), 0),

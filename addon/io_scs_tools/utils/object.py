@@ -31,6 +31,9 @@ from . import convert as _convert
 from . import get_scs_globals as _get_scs_globals
 from .printout import lprint
 
+_FOV_OVERRIDE_PAYLOAD_KEY = "fov_override"
+"""Hookup payload key of camera FOV override, exported as: Hookup: "#fov_override:22"."""
+
 
 def get_scs_root(obj):
     """Takes any object and returns it's 'SCS Root Object' or None."""
@@ -949,6 +952,17 @@ def assign_hookup_payload(locator, hookup_id, hookup_payload):
     :param hookup_payload: dictionary of payload data for the given hookup
     :type hookup_payload: dict[str, str]
     """
+    hookup_payload = dict(hookup_payload)
+
+    # camera FOV override payload, can be used without or together with any hookup
+    fov_override = hookup_payload.pop(_FOV_OVERRIDE_PAYLOAD_KEY, None)
+    if fov_override is not None:
+        try:
+            locator.scs_props.locator_model_fov_override_value = float(fov_override)
+            locator.scs_props.locator_model_fov_override = True
+        except ValueError:
+            lprint("W Invalid FOV override value %r on model locator %r, ignoring it!", (fov_override, locator.name))
+
     # lamp type payload
     if is_lamp_hookup(hookup_id) and is_lamp_hookup_payload(hookup_payload):
         locator.scs_props.locator_model_hookup_lamp_height = float(hookup_payload["height"])
@@ -969,7 +983,7 @@ def get_hookup_payload_string(locator):
     hookup_payload = ""
 
     # lamp type payload
-    if is_lamp_hookup(hookup_id):
+    if hookup_id and is_lamp_hookup(hookup_id):
         root_obj = get_scs_root(locator)
 
         loc_q = locator.matrix_world.to_quaternion()
@@ -996,7 +1010,57 @@ def get_hookup_payload_string(locator):
             target = height / lamp_down_dot
             hookup_payload = "height:%.1f;target:%.1f" % (height, target)
 
+    # camera FOV override payload
+    if is_camera_locator(locator) and locator.scs_props.locator_model_fov_override:
+        fov_payload = "%s:%s" % (_FOV_OVERRIDE_PAYLOAD_KEY, format_payload_number(locator.scs_props.locator_model_fov_override_value))
+        hookup_payload = hookup_payload + ";" + fov_payload if hookup_payload else fov_payload
+
     return hookup_payload
+
+
+def get_hookup_export_string(locator):
+    """Constructs and returns complete hookup string of model locator to be used in export: hookup ID with payload behind hashtag.
+    Payload can be exported also without hookup ID (e.g. camera FOV override).
+
+    :param locator: model locator object
+    :type locator: bpy.types.Object
+    :return: hookup string; None if locator has neither hookup nor payload
+    :rtype: str | None
+    """
+    hookup_string = locator.scs_props.locator_model_hookup
+    hookup_id = _convert.hookup_name_to_hookup_id(hookup_string)
+
+    if hookup_string != "" and hookup_id is None:
+        lprint("W Model locator %r has unexpected hookup value %r.", (locator.name, hookup_string))
+
+    hookup_payload = get_hookup_payload_string(locator)
+
+    if hookup_payload:
+        return (hookup_id or "") + "#" + hookup_payload
+
+    return hookup_id
+
+
+def is_camera_locator(locator):
+    """Is given model locator a camera locator? Camera locators are identified by name starting with "cam_".
+
+    :param locator: model locator object
+    :type locator: bpy.types.Object
+    :return: True if model locator name starts with "cam_"; False otherwise
+    :rtype: bool
+    """
+    return locator.name.lower().startswith("cam_")
+
+
+def format_payload_number(value):
+    """Formats number for hookup payload: integers without decimal part, decimals without trailing zeros.
+
+    :param value: number to format
+    :type value: float
+    :return: formatted number, e.g. 22, 22.5
+    :rtype: str
+    """
+    return ("%.4f" % value).rstrip("0").rstrip(".")
 
 
 def is_lamp_hookup(hookup_id):

@@ -296,8 +296,16 @@ class SCS_TOOLS_PT_Locator(_ObjectPanelBlDefs, Panel):
         # locator hookup payload
         if obj.scs_props.locator_model_hookup != "":
             hookup_id = _convert_utils.hookup_name_to_hookup_id(obj.scs_props.locator_model_hookup)
-            if _object_utils.is_lamp_hookup(hookup_id):
+            if hookup_id and _object_utils.is_lamp_hookup(hookup_id):
                 layout.prop(obj.scs_props, 'locator_model_hookup_lamp_height')
+
+        # camera FOV override
+        if _object_utils.is_camera_locator(obj):
+            row = layout.row(align=True, heading="FOV Override")
+            row.prop(obj.scs_props, 'locator_model_fov_override', text="")
+            sub = row.row(align=True)
+            sub.active = obj.scs_props.locator_model_fov_override
+            sub.prop(obj.scs_props, 'locator_model_fov_override_value', text="")
 
     @staticmethod
     def draw_collision_locator(layout, obj, split_perc):
