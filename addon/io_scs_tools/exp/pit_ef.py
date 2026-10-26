@@ -93,7 +93,9 @@ def export(root_object, filepath, name_suffix, used_parts, used_materials):
     look_list = []
     variant_list = []
 
+    # save active look and current materials state, so export doesn't change anything (applying looks changes materials)
     saved_active_look = root_object.scs_props.active_scs_look
+    saved_materials_state = _looks.get_materials_state(root_object)
     looks_inventory = root_object.scs_object_look_inventory
     looks_count = len(looks_inventory)
     if looks_count <= 0:
@@ -104,9 +106,7 @@ def export(root_object, filepath, name_suffix, used_parts, used_materials):
 
         # apply each look from inventory first
         if len(looks_inventory) > 0:
-            root_object.scs_props.active_scs_look = i
-
-            # actually write values to material because Blender might not refresh data yet
+            _looks.set_active_look_index(root_object, i)  # set index for current look
             _looks.apply_active_look(root_object)
 
             curr_look_name = looks_inventory[i].name
@@ -353,8 +353,9 @@ def export(root_object, filepath, name_suffix, used_parts, used_materials):
         }
         look_list.append(look_data)
 
-    # restore look applied before export
-    root_object.scs_props.active_scs_look = saved_active_look
+    # restore active look and exact materials state from before export
+    _looks.set_active_look_index(root_object, saved_active_look)
+    _looks.restore_materials_state(saved_materials_state)
 
     # PARTS AND VARIANTS...
     used_parts_names = used_parts.get_as_list()

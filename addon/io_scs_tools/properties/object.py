@@ -438,11 +438,10 @@ class ObjectSCSTools(bpy.types.PropertyGroup):
 
             self["active_scs_look"] = value
 
-            if bpy.context.active_object:
-
-                scs_root = _object_utils.get_scs_root(bpy.context.active_object)
-                if scs_root:
-                    _looks.apply_active_look(scs_root)
+            # apply look of the SCS root owning this property (not of active object, which can be in other SCS root)
+            scs_root = _object_utils.get_scs_root(self.id_data)
+            if scs_root:
+                _looks.apply_active_look(scs_root)
 
     active_scs_look: IntProperty(
         name="Active SCS Look",

@@ -60,20 +60,36 @@ def __update_look__(self, context):
     :type context: bpy.types.Context
     """
 
-    if hasattr(context, "active_object") and hasattr(context.active_object, "active_material") and context.active_object.active_material:
+    # property updated by applying look (material passed instead of context), nothing to write back into looks
+    if isinstance(context, bpy.types.Material):
+        return
 
-        is_preset_change = "preset_change" in self
+    # update looks of the material which was actually changed, which isn't necessarily active material of active object
+    # (e.g. editing multiple objects at once or pinned material)
+    material = getattr(self, "id_data", None)
+    if not isinstance(material, bpy.types.Material):
+        material = _material_utils.get_material_from_context(context)
 
-        scs_roots = []
-        if is_preset_change:  # on preset change we have to update all scs roots to sync shader type
-            scs_roots = _object_utils.gather_scs_roots(bpy.data.objects)
+    if not material:
+        return
+
+    is_preset_change = "preset_change" in self
+
+    if is_preset_change:  # on preset change we have to update all scs roots to sync shader type
+        scs_roots = _object_utils.gather_scs_roots(bpy.data.objects)
+    else:
+        active_obj = getattr(context, "active_object", None)
+        active_root = _object_utils.get_scs_root(active_obj) if active_obj else None
+
+        # changed material used on active object, update only its SCS game object as before,
+        # otherwise update all SCS game objects using it, so the change doesn't get lost (e.g. reverted by export)
+        if active_root and any(slot.material == material for slot in active_obj.material_slots):
+            scs_roots = [active_root]
         else:
-            scs_root = _object_utils.get_scs_root(context.active_object)
-            if scs_root:
-                scs_roots.append(scs_root)
+            scs_roots = _looks.get_roots_using_material(material)
 
-        for scs_root in scs_roots:
-            _looks.update_look_from_material(scs_root, context.active_object.active_material, is_preset_change)
+    for scs_root in scs_roots:
+        _looks.update_look_from_material(scs_root, material, is_preset_change)
 
 
 def __update_shader_attribute__(self, context, attr_type):

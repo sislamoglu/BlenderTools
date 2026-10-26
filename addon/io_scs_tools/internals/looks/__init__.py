@@ -111,49 +111,69 @@ def apply_active_look(root_obj, force_apply=False):
             lprint("D Can't properly apply look! Look entry with ID: %s is missing data for material: %r", (look_id_str, material.name))
             continue
 
-        mat_data = look_data[mat_id_str]
-        for prop in mat_data:
-            lprint("S |- attr set: %r => %r", (prop, mat_data[prop]))
+        __apply_material_entry__(material, look_data[mat_id_str])
 
-            different = False  # apply value change and invoke update only if property is different
-            if isinstance(mat_data[prop], Iterable) and "CollectionProperty" in mat_data[prop]:
-                coll_property = getattr(material.scs_props, prop, None)
-                if coll_property:
-                    different = True
-                    last_entry = None
-                    coll_property.clear()
-                    for entry in mat_data[prop]["entries"]:
-                        new_entry = coll_property.add()
-                        for key in entry:
-                            new_entry[key] = entry[key]
 
-                        last_entry = new_entry
+def set_active_look_index(root_obj, index):
+    """Sets active look index on given SCS root object without applying the look (as active look setter does).
 
-                    # apply update_value function if exists only on last collection property item
-                    # this will update: aux and uv layer items
-                    update_func = getattr(last_entry, "update_value", None)
-                    if update_func and different:
-                        update_func(material)
-            else:
-                different = (prop not in material.scs_props or material.scs_props[prop] != mat_data[prop])
-                if different:
-                    material.scs_props[prop] = mat_data[prop]
+    :param root_obj: scs root object
+    :type root_obj: bpy.types.Object
+    :param index: index of active look; -1 for none
+    :type index: int
+    """
+    if index >= 0:
+        root_obj.scs_props["active_scs_look"] = index
+    elif "active_scs_look" in root_obj.scs_props:
+        del root_obj.scs_props["active_scs_look"]
 
-            update_func = getattr(material.scs_props, "update_" + prop, None)
-            # invoke update function on property if exists
-            if update_func and different:
-                try:
-                    update_func(material)
-                except KeyError:
-                    lprint("E Can't update material attribute: %r on material: %r, expect desynced looks!" % (prop, material.name))
 
-        # unset any unused
-        for prop in list(material.scs_props.keys()):
-            valid_prefix = (prop.startswith("shader_attribute") or prop.startswith("shader_texture"))
-            is_not_ignored = not ((prop.startswith("shader_texture") and prop.endswith(_IGNORED_TEXTURE_PROPS)) or prop in _IGNORED_PROPS)
-            if prop not in mat_data and valid_prefix and is_not_ignored:
-                lprint("S |- attr unset: %r", (prop,))
-                material.scs_props.property_unset(prop)
+def get_roots_using_material(material):
+    """Gets all SCS root objects which game objects use given material.
+
+    :param material: material to search for
+    :type material: bpy.types.Material
+    :return: SCS root objects using given material
+    :rtype: list[bpy.types.Object]
+    """
+    import bpy
+    from io_scs_tools.utils import object as _object
+
+    roots = {}
+    for obj in bpy.data.objects:
+        for slot in obj.material_slots:
+            if slot.material == material:
+                root = _object.get_scs_root(obj)
+                if root:
+                    roots[root.name] = root
+                break
+
+    return list(roots.values())
+
+
+def get_materials_state(root_obj):
+    """Gets current state of all materials used in given SCS game object, to be able to restore it later.
+
+    :param root_obj: scs root object
+    :type root_obj: bpy.types.Object
+    :return: list of materials with their current material entries
+    :rtype: list[(bpy.types.Material, dict)]
+    """
+    if not root_obj:
+        return []
+
+    return [(material, __create_material_entry__(material)) for material in __collect_materials__(root_obj)]
+
+
+def restore_materials_state(materials_state):
+    """Restores materials into the state gathered by get_materials_state.
+
+    :param materials_state: materials with their material entries, as returned by get_materials_state
+    :type materials_state: list[(bpy.types.Material, dict)]
+    """
+    for material, mat_data in materials_state:
+        lprint("D Restoring material: %r:", (material.name,))
+        __apply_material_entry__(material, mat_data)
 
 
 def update_look_from_material(root_obj, material, preset_change=False):
@@ -568,6 +588,58 @@ def __collect_materials__(root_obj):
                 collected_mats[slot.material.name] = slot.material
 
     return collected_mats.values()
+
+
+def __apply_material_entry__(material, mat_data):
+    """Applies given material entry to material "scs_props" and unsets any unused shader properties.
+
+    :param material: material to which entry should be applied
+    :type material: bpy.types.Material
+    :param mat_data: material entry as created by __create_material_entry__
+    :type mat_data: dict
+    """
+    for prop in mat_data:
+        lprint("S |- attr set: %r => %r", (prop, mat_data[prop]))
+
+        different = False  # apply value change and invoke update only if property is different
+        if isinstance(mat_data[prop], Iterable) and "CollectionProperty" in mat_data[prop]:
+            coll_property = getattr(material.scs_props, prop, None)
+            if coll_property:
+                different = True
+                last_entry = None
+                coll_property.clear()
+                for entry in mat_data[prop]["entries"]:
+                    new_entry = coll_property.add()
+                    for key in entry:
+                        new_entry[key] = entry[key]
+
+                    last_entry = new_entry
+
+                # apply update_value function if exists only on last collection property item
+                # this will update: aux and uv layer items
+                update_func = getattr(last_entry, "update_value", None)
+                if update_func and different:
+                    update_func(material)
+        else:
+            different = (prop not in material.scs_props or material.scs_props[prop] != mat_data[prop])
+            if different:
+                material.scs_props[prop] = mat_data[prop]
+
+        update_func = getattr(material.scs_props, "update_" + prop, None)
+        # invoke update function on property if exists
+        if update_func and different:
+            try:
+                update_func(material)
+            except KeyError:
+                lprint("E Can't update material attribute: %r on material: %r, expect desynced looks!" % (prop, material.name))
+
+    # unset any unused
+    for prop in list(material.scs_props.keys()):
+        valid_prefix = (prop.startswith("shader_attribute") or prop.startswith("shader_texture"))
+        is_not_ignored = not ((prop.startswith("shader_texture") and prop.endswith(_IGNORED_TEXTURE_PROPS)) or prop in _IGNORED_PROPS)
+        if prop not in mat_data and valid_prefix and is_not_ignored:
+            lprint("S |- attr unset: %r", (prop,))
+            material.scs_props.property_unset(prop)
 
 
 def __create_material_entry__(material):
