@@ -472,7 +472,19 @@ class SCS_TOOLS_OT_ShowDeveloperErrors(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class SCS_TOOLS_OT_CloseDialog(bpy.types.Operator):
+    """Closes dialog from which it was called, used as cancel button in dialogs drawing their own buttons."""
+    bl_label = "Cancel"
+    bl_description = "Close dialog without any changes"
+    bl_idname = "wm.scs_tools_close_dialog"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        return {'CANCELLED'}
+
+
 classes = (
+    SCS_TOOLS_OT_CloseDialog,
     SCS_TOOLS_OT_Show3DViewReport,
     SCS_TOOLS_OT_ShowDeveloperErrors,
     SCS_TOOLS_OT_ShowMessageInPopup

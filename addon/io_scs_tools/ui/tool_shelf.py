@@ -74,6 +74,10 @@ class SCS_TOOLS_PT_ToolShelf(_ToolShelfBlDefs, Panel):
             row.operator('object.scs_tools_relocate_scs_roots', icon="CON_LOCLIKE")
             row = col.row(align=True)
             row.operator('object.scs_tools_move_scs_roots', icon="EMPTY_ARROWS")
+            row = col.row(align=True)
+            row.operator('material.scs_tools_replace_texture_paths', icon="FILE_IMAGE")
+            row = col.row(align=True)
+            row.operator('object.scs_tools_replace_export_paths', icon="FILE_FOLDER")
 
             col.separator(factor=0.5)
 

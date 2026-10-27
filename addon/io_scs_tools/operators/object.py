@@ -21,6 +21,7 @@
 
 import bmesh
 import bpy
+import os
 import re
 from bpy.props import BoolProperty, StringProperty, IntProperty, EnumProperty, FloatVectorProperty
 from mathutils import Vector
@@ -34,6 +35,8 @@ from io_scs_tools.internals import looks as _looks
 from io_scs_tools.internals.icons import get_icon as _get_icon
 from io_scs_tools.internals.connections.wrappers import collection as _connections_wrapper
 from io_scs_tools.internals.open_gl.storage import terrain_points as _terrain_points_storage
+from io_scs_tools.operators.bases.export import SCSExportHelper as _SCSExportHelper
+from io_scs_tools.operators.bases.replace import Replace as _BaseReplaceOperator
 from io_scs_tools.operators.bases.selection import Selection as _BaseSelectionOperator
 from io_scs_tools.operators.bases.view import View as _BaseViewOperator
 from io_scs_tools.properties.object import ObjectSCSTools as _ObjectSCSTools
@@ -2678,6 +2681,145 @@ class SCSRoot:
         def invoke(self, context, event):
             return context.window_manager.invoke_props_dialog(self)
 
+    class SCS_TOOLS_OT_ReplaceExportPaths(bpy.types.Operator, _BaseReplaceOperator):
+        """Search and replace export paths of all SCS Root objects in the scene."""
+        bl_label = "Replace Export Paths"
+        bl_idname = "object.scs_tools_replace_export_paths"
+        bl_description = ("Search for custom export paths (including animations export paths) of all SCS Root objects in the scene "
+                          "and replace them, optionally exporting changed SCS Root objects afterwards")
+        # NOTE: no redo panel on purpose, as adjusting last operation would export again on each change
+        bl_options = {'UNDO'}
+
+        path_props = ("scs_root_object_export_filepath", "scs_root_object_anim_export_filepath")
+
+        export_when_finished: BoolProperty(
+            name="Export when finished",
+            description="Export SCS Root objects with changed export paths one by one, once replacing is done",
+            default=False,
+        )
+
+        class RootExporter(_SCSExportHelper):
+            """Exporter of single SCS Root object (together with its children) forwarding reports to given operator."""
+
+            def __init__(self, operator, root_obj):
+                _SCSExportHelper.__init__(self)
+                self.operator = operator
+
+                # export only objects of this root, nested SCS Roots are exported on their own
+                self.cached_objects = [root_obj]
+                for child_obj in _object_utils.get_children(root_obj):
+                    if child_obj.users_scene and _object_utils.get_scs_root(child_obj) == root_obj:
+                        self.cached_objects.append(child_obj)
+
+            def report(self, type, message):
+                self.operator.report(type, message)
+
+        @classmethod
+        def poll(cls, context):
+            return context.scene is not None
+
+        def draw(self, context):
+            self.draw_replace_props(self.layout)
+            self.layout.prop(self, "export_when_finished")
+            self.draw_replace_buttons(self.layout)
+
+        @staticmethod
+        def ensure_export_dir(root_obj):
+            """Creates custom export directory of given SCS Root, if it doesn't exist yet and it's inside SCS Project Base Path.
+
+            :param root_obj: SCS Root object
+            :type root_obj: bpy.types.Object
+            """
+            export_dir = _path_utils.get_custom_scs_root_export_path(root_obj)
+            if not export_dir:
+                return
+
+            export_dir = _path_utils.readable_norm(export_dir)
+            scs_project_path = _path_utils.readable_norm(_get_scs_globals().scs_project_path)
+            if scs_project_path == "" or not _path_utils.startswith(export_dir, scs_project_path):
+                return
+
+            if not os.path.isdir(export_dir):
+                try:
+                    os.makedirs(export_dir)
+                    lprint("I Created export directory for %r: %r", (root_obj.name, export_dir))
+                except OSError as e:
+                    lprint("E Export directory for %r couldn't be created: %s", (root_obj.name, e))
+
+        def execute(self, context):
+            lprint("D " + self.bl_label + "...")
+
+            try:
+                replace = self.get_replace_function()
+            except ValueError as e:
+                self.report({'ERROR'}, str(e))
+                return {'CANCELLED'}
+
+            changed_roots = []
+            changed_paths_count = 0
+            for root_obj in context.scene.objects:
+
+                if root_obj.type != 'EMPTY' or root_obj.scs_props.empty_object_type != 'SCS_Root':
+                    continue
+
+                changed = False
+                for prop in self.path_props:
+                    value = getattr(root_obj.scs_props, prop)
+                    new_value = replace(value)
+                    if new_value == value:
+                        continue
+
+                    # linked data from libraries can't be changed
+                    if root_obj.library and not root_obj.override_library:
+                        lprint("W SCS Root %r is linked from library, its export paths can't be changed!", (root_obj.name,))
+                        break
+
+                    setattr(root_obj.scs_props, prop, new_value)
+                    lprint("I SCS Root %r path changed: %r -> %r", (root_obj.name, value, new_value))
+                    changed_paths_count += 1
+                    changed = True
+
+                if changed:
+                    changed_roots.append(root_obj)
+
+            if not changed_roots:
+                self.report({'WARNING'}, "No export paths matching %r found!" % self.search_for)
+                return {'FINISHED'}
+
+            message = "Replaced %i export path(s) in %i SCS Root object(s)." % (changed_paths_count, len(changed_roots))
+
+            if not self.export_when_finished:
+                self.report({'INFO'}, message)
+                return {'FINISHED'}
+
+            exported = []
+            failed = []
+            for root_obj in changed_roots:
+
+                if not root_obj.scs_props.scs_root_object_export_enabled:
+                    lprint("I SCS Root %r is excluded from export, skipping it.", (root_obj.name,))
+                    continue
+
+                self.ensure_export_dir(root_obj)
+
+                exporter = self.RootExporter(self, root_obj)
+                if exporter.execute_export(context, True) == {'FINISHED'}:
+                    exported.append(root_obj.name)
+                else:
+                    failed.append(root_obj.name)
+
+            message += " Exported %i SCS Root object(s)." % len(exported)
+            if failed:
+                message += " Export failed for: %s!" % ", ".join(failed)
+                self.report({'WARNING'}, message)
+            else:
+                self.report({'INFO'}, message)
+
+            return {'FINISHED'}
+
+        def invoke(self, context, event):
+            return self.invoke_replace_dialog(context, event)
+
 
 class Animation:
     """
@@ -3078,6 +3220,7 @@ classes = (
     SCSRoot.SCS_TOOLS_OT_ViewAllObjectsWithinSCSRoot,
     SCSRoot.SCS_TOOLS_OT_RelocateSCSRoot,
     SCSRoot.SCS_TOOLS_OT_MoveSCSRoots,
+    SCSRoot.SCS_TOOLS_OT_ReplaceExportPaths,
 
     ShadowCasters.SCS_TOOLS_OT_SelectShadowCasters,
     ShadowCasters.SCS_TOOLS_OT_ShowShadowCastersAsWire,

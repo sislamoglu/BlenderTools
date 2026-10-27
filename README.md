@@ -20,6 +20,11 @@ What tools are included:
  - SCS Material system (using shader presets)
  - Special tool-shelf with additional tools
 
+New features and fixes added in this repository (Replace Texture/Export
+Paths, Move Roots, SCS Outliner, locators click selection, camera FOV
+override, instances export and more) are described in
+"docs/NEW_FEATURES.md".
+
 
 Installation and Usage:
 -------------

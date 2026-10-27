@@ -23,13 +23,16 @@ import os
 import re
 from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty
 from io_scs_tools.consts import Material as _MAT_consts
+from io_scs_tools.consts import Look as _LOOK_consts
 from io_scs_tools.exp import tobj as _tobj_exp
 from io_scs_tools.internals import looks as _looks
+from io_scs_tools.operators.bases.replace import Replace as _BaseReplaceOperator
 from io_scs_tools.utils import convert as _convert_utils
 from io_scs_tools.utils import get_scs_globals as _get_scs_globals
 from io_scs_tools.utils import material as _material_utils
 from io_scs_tools.utils import object as _object_utils
 from io_scs_tools.utils import path as _path_utils
+from io_scs_tools.utils import view3d as _view3d_utils
 from io_scs_tools.utils.printout import lprint
 from io_scs_tools.utils.property import get_filebrowser_display_type
 
@@ -1119,6 +1122,143 @@ class Texture:
             context.window_manager.fileselect_add(self)
             return {'RUNNING_MODAL'}
 
+    class SCS_TOOLS_OT_ReplaceTexturePaths(bpy.types.Operator, _BaseReplaceOperator):
+        """Search and replace texture paths in all SCS materials and their looks."""
+        bl_label = "Replace Texture Paths"
+        bl_idname = "material.scs_tools_replace_texture_paths"
+        bl_description = "Search for texture paths in all SCS materials (including all looks) and replace them"
+        bl_options = {'REGISTER', 'UNDO'}
+
+        @staticmethod
+        def get_texture_types():
+            """Gets all SCS texture types defined in material properties.
+
+            :return: texture types, e.g. "base", "nmap"...
+            :rtype: list[str]
+            """
+            from io_scs_tools.properties.material import MaterialSCSTools
+
+            texture_types = []
+            for prop in MaterialSCSTools.bl_rna.properties:
+                if prop.identifier.startswith("shader_texture_") and prop.identifier.endswith("_locked"):
+                    texture_types.append(prop.identifier[len("shader_texture_"):-len("_locked")])
+
+            return texture_types
+
+        def draw(self, context):
+            self.draw_replace_props(self.layout)
+            self.draw_replace_buttons(self.layout)
+
+        def execute(self, context):
+            lprint("D " + self.bl_label + "...")
+
+            try:
+                replace = self.get_replace_function()
+            except ValueError as e:
+                self.report({'ERROR'}, str(e))
+                return {'CANCELLED'}
+
+            # texture path properties per texture type: texture path itself and imported TOBJ reference
+            path_props = {}
+            texture_path_props = set()
+            for tex_type in self.get_texture_types():
+                tex_prop = "shader_texture_" + tex_type
+                path_props[tex_prop] = tex_type
+                path_props[tex_prop + "_imported_tobj"] = tex_type
+                texture_path_props.add(tex_prop)
+
+            def is_locked(material, tex_type):
+                return getattr(material.scs_props, "shader_texture_" + tex_type + "_locked", False)
+
+            scs_materials = [mat for mat in bpy.data.materials if mat.scs_props.active_shader_preset_name not in ("", "<none>")]
+            materials_by_id = {str(mat.scs_props.id): mat for mat in scs_materials}
+
+            replaced_count = 0
+            locked_count = 0
+            changed_materials = set()
+
+            # 1. replace in looks of all SCS roots, so paths stay replaced also on look switching
+            looks_replaced_count = 0
+            for root_obj in bpy.data.objects:
+                if root_obj.type != 'EMPTY' or root_obj.scs_props.empty_object_type != 'SCS_Root' or _LOOK_consts.custom_prop_name not in root_obj:
+                    continue
+
+                for look_data in root_obj[_LOOK_consts.custom_prop_name].values():
+                    for mat_id, mat_entry in look_data.items():
+                        material = materials_by_id.get(mat_id)
+                        if material is None:
+                            continue
+
+                        for prop in list(mat_entry.keys()):
+                            if prop not in path_props or not isinstance(mat_entry[prop], str) or mat_entry[prop] == "":
+                                continue
+
+                            new_value = replace(mat_entry[prop])
+                            if new_value == mat_entry[prop]:
+                                continue
+
+                            if is_locked(material, path_props[prop]):
+                                continue
+
+                            # texture paths are stored in same form as when texture is set from UI
+                            if prop in texture_path_props:
+                                new_value = _path_utils.get_scs_texture_str(new_value)
+
+                            mat_entry[prop] = new_value
+                            looks_replaced_count += 1
+
+            # 2. replace in materials and update their textures
+            for material in scs_materials:
+                for prop in path_props:
+                    if prop not in material.scs_props.keys():
+                        continue
+
+                    value = material.scs_props[prop]
+                    if not isinstance(value, str) or value == "":
+                        continue
+
+                    new_value = replace(value)
+                    if new_value == value:
+                        continue
+
+                    if is_locked(material, path_props[prop]):
+                        locked_count += 1
+                        lprint("I Texture %r of material %r is locked by shader preset, its path won't be replaced.", (prop, material.name))
+                        continue
+
+                    # set value directly and invoke the same update as changing texture from UI, but with this material
+                    # (UI property update works on active material of active object)
+                    # NOTE: looks were already updated above for all looks, so update doesn't write into looks
+                    material.scs_props[prop] = new_value
+                    update_func = getattr(material.scs_props, "update_" + prop, None)
+                    if update_func:
+                        update_func(material)
+
+                    material.update_tag()
+
+                    lprint("I Material %r: %r replaced %r -> %r", (material.name, prop, value, material.scs_props[prop]))
+                    replaced_count += 1
+                    changed_materials.add(material.name)
+
+            # refresh UI showing changed texture paths
+            if changed_materials:
+                _view3d_utils.tag_redraw_all_regions()
+
+            if replaced_count == 0 and looks_replaced_count == 0:
+                self.report({'WARNING'}, "No texture paths matching %r found." % self.search_for)
+            else:
+                message = "Replaced %i texture path(s) in %i material(s)" % (replaced_count, len(changed_materials))
+                if looks_replaced_count:
+                    message += ", %i in looks" % looks_replaced_count
+                if locked_count:
+                    message += ", %i locked texture(s) skipped" % locked_count
+                self.report({'INFO'}, message + ".")
+
+            return {'FINISHED'}
+
+        def invoke(self, context, event):
+            return self.invoke_replace_dialog(context, event)
+
 
 class Attribute:
     """
@@ -1226,6 +1366,7 @@ classes = (
     Looks.SCS_TOOLS_OT_WriteThroughLooks,
 
     Texture.SCS_TOOLS_OT_SelectTexturePath,
+    Texture.SCS_TOOLS_OT_ReplaceTexturePaths,
 
     Tobj.SCS_TOOLS_OT_CreateTOBJ,
     Tobj.SCS_TOOLS_ReloadTOBJ,
