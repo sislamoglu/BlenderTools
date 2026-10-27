@@ -143,6 +143,10 @@ def set_detail_uv(node_tree, uv_layer):
     :type uv_layer: str
     """
 
+    # detail normal map flavor isn't set (e.g. stale uv mapping from previous preset), nothing to set
+    if DET_NMAP_UVMAP_NODE not in node_tree.nodes or nmap.NMAP_NODE not in node_tree.nodes:
+        return
+
     if uv_layer is None or uv_layer == "":
         uv_layer = _MESH_consts.none_uv
 

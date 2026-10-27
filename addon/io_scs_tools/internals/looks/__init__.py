@@ -590,6 +590,37 @@ def __collect_materials__(root_obj):
     return collected_mats.values()
 
 
+def __normalize_value__(value):
+    """Normalizes property value for comparison, so that arrays of different types compare equal."""
+    if isinstance(value, str) or not isinstance(value, Iterable):
+        return value
+    return tuple(__normalize_value__(item) for item in value)
+
+
+def __are_collection_entries_equal__(coll_property, entries):
+    """Tells if current entries of given collection property are equal to given collection entries from material entry.
+
+    :param coll_property: collection property of material scs_props
+    :type coll_property: bpy.types.bpy_prop_collection
+    :param entries: entries of collection property in material entry
+    :type entries: list[dict]
+    :return: True if entries are the same; False otherwise
+    :rtype: bool
+    """
+    if len(coll_property) != len(entries):
+        return False
+
+    for coll_entry, entry in zip(coll_property, entries):
+        if set(coll_entry.keys()) != set(entry.keys()):
+            return False
+
+        for key in entry.keys():
+            if __normalize_value__(getattr(coll_entry, key, None)) != __normalize_value__(entry[key]):
+                return False
+
+    return True
+
+
 def __apply_material_entry__(material, mat_data):
     """Applies given material entry to material "scs_props" and unsets any unused shader properties.
 
@@ -604,7 +635,7 @@ def __apply_material_entry__(material, mat_data):
         different = False  # apply value change and invoke update only if property is different
         if isinstance(mat_data[prop], Iterable) and "CollectionProperty" in mat_data[prop]:
             coll_property = getattr(material.scs_props, prop, None)
-            if coll_property:
+            if coll_property and not __are_collection_entries_equal__(coll_property, mat_data[prop]["entries"]):
                 different = True
                 last_entry = None
                 coll_property.clear()
@@ -618,8 +649,12 @@ def __apply_material_entry__(material, mat_data):
                 # apply update_value function if exists only on last collection property item
                 # this will update: aux and uv layer items
                 update_func = getattr(last_entry, "update_value", None)
-                if update_func and different:
-                    update_func(material)
+                if update_func:
+                    try:
+                        update_func(material)
+                    except (KeyError, AttributeError) as e:
+                        lprint("W Can't update material attribute: %r on material: %r (%s), expect desynced looks!",
+                               (prop, material.name, e))
         else:
             different = (prop not in material.scs_props or material.scs_props[prop] != mat_data[prop])
             if different:
