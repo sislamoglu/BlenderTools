@@ -2682,16 +2682,22 @@ class SCSRoot:
             return context.window_manager.invoke_props_dialog(self)
 
     class SCS_TOOLS_OT_ReplaceExportPaths(bpy.types.Operator, _BaseReplaceOperator):
-        """Search and replace export paths of all SCS Root objects in the scene."""
+        """Search and replace export paths of SCS Root objects in scene or collection."""
         bl_label = "Replace Export Paths"
         bl_idname = "object.scs_tools_replace_export_paths"
-        bl_description = ("Search for custom export paths (including animations export paths) of all SCS Root objects in the scene "
-                          "and replace them, optionally exporting changed SCS Root objects afterwards")
+        bl_description = ("Search for custom export paths (including animations export paths) of SCS Root objects in selected scene "
+                          "or collection and replace them, optionally exporting changed SCS Root objects afterwards")
         # NOTE: no redo panel on purpose, as adjusting last operation would export again on each change
         bl_options = {'UNDO'}
 
         path_props = ("scs_root_object_export_filepath", "scs_root_object_anim_export_filepath")
 
+        scope: EnumProperty(
+            name="Replace In",
+            description="Scene or collection in which export paths of SCS Root objects are replaced",
+            items=lambda self, context: _BaseReplaceOperator.get_scope_items(context, False),
+            options={'SKIP_SAVE'},
+        )
         export_when_finished: BoolProperty(
             name="Export when finished",
             description="Export SCS Root objects with changed export paths one by one, once replacing is done",
@@ -2757,10 +2763,7 @@ class SCSRoot:
 
             changed_roots = []
             changed_paths_count = 0
-            for root_obj in context.scene.objects:
-
-                if root_obj.type != 'EMPTY' or root_obj.scs_props.empty_object_type != 'SCS_Root':
-                    continue
+            for root_obj in self.get_scope_roots(context):
 
                 changed = False
                 for prop in self.path_props:

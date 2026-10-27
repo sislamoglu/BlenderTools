@@ -1123,11 +1123,19 @@ class Texture:
             return {'RUNNING_MODAL'}
 
     class SCS_TOOLS_OT_ReplaceTexturePaths(bpy.types.Operator, _BaseReplaceOperator):
-        """Search and replace texture paths in all SCS materials and their looks."""
+        """Search and replace texture paths in SCS materials of scene, collection or SCS Root and their looks."""
         bl_label = "Replace Texture Paths"
         bl_idname = "material.scs_tools_replace_texture_paths"
-        bl_description = "Search for texture paths in all SCS materials (including all looks) and replace them"
+        bl_description = ("Search for texture paths in SCS materials (including all looks) used in selected scene, "
+                          "collection or SCS Root and replace them")
         bl_options = {'REGISTER', 'UNDO'}
+
+        scope: EnumProperty(
+            name="Replace In",
+            description="Scene, collection or SCS Root in which materials texture paths are replaced",
+            items=lambda self, context: _BaseReplaceOperator.get_scope_items(context, True),
+            options={'SKIP_SAVE'},
+        )
 
         @staticmethod
         def get_texture_types():
@@ -1170,17 +1178,23 @@ class Texture:
             def is_locked(material, tex_type):
                 return getattr(material.scs_props, "shader_texture_" + tex_type + "_locked", False)
 
-            scs_materials = [mat for mat in bpy.data.materials if mat.scs_props.active_shader_preset_name not in ("", "<none>")]
+            # SCS materials used by objects within scope
+            scs_materials = []
+            for obj in self.get_scope_objects(context):
+                for slot in obj.material_slots:
+                    material = slot.material
+                    if material and material not in scs_materials and material.scs_props.active_shader_preset_name not in ("", "<none>"):
+                        scs_materials.append(material)
             materials_by_id = {str(mat.scs_props.id): mat for mat in scs_materials}
 
             replaced_count = 0
             locked_count = 0
             changed_materials = set()
 
-            # 1. replace in looks of all SCS roots, so paths stay replaced also on look switching
+            # 1. replace in looks of SCS roots within scope, so paths stay replaced also on look switching
             looks_replaced_count = 0
-            for root_obj in bpy.data.objects:
-                if root_obj.type != 'EMPTY' or root_obj.scs_props.empty_object_type != 'SCS_Root' or _LOOK_consts.custom_prop_name not in root_obj:
+            for root_obj in self.get_scope_roots(context):
+                if _LOOK_consts.custom_prop_name not in root_obj:
                     continue
 
                 for look_data in root_obj[_LOOK_consts.custom_prop_name].values():

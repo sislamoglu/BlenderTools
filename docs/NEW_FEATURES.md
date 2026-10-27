@@ -40,11 +40,18 @@ Moves SCS Root objects in the scene, together with all their children, by an X, 
 
 ### Replace Texture Paths
 
-Searches texture paths of all SCS materials in the file and replaces text in them.
+Searches texture paths of SCS materials and replaces text in them. **Replace In** picks which materials are processed:
+
+- **Scene** (default: the current scene): SCS materials used by any object in the scene, plus the looks of all SCS Roots in it.
+- **Collection**: SCS Roots in the collection, including its child collections, with their objects' materials and their looks.
+- **SCS Root**: only that SCS Root, with its objects' materials and its looks. Nested SCS Roots are not included.
+
+Materials that no object in the chosen scope uses are never changed. A material shared with objects outside the scope
+still changes for them too, because it is the same material. Looks of SCS Roots outside the scope are left as they are.
 
 - Every texture of every SCS shader is processed: base, mask, normal maps, detail textures and so on. This covers both
   the texture path and the path of an imported TOBJ.
-- Paths are replaced in the **material and in all looks** of every SCS Root that uses the material, not only in the active look.
+- Paths are replaced in the **material and in all looks** of the SCS Roots in scope, not only in the active look.
 - Each changed texture is updated exactly as if it had been picked with the texture path button: the TOBJ settings are
   reloaded, the image is reloaded in the shader nodes and the viewport is refreshed. New paths are normalized to project
   relative (`//...`) form.
@@ -53,7 +60,10 @@ Searches texture paths of all SCS materials in the file and replaces text in the
 
 ### Replace Export Paths
 
-Searches the custom export paths of all SCS Root objects in the current scene and replaces text in them.
+Searches the custom export paths of SCS Root objects and replaces text in them. **Replace In** picks which roots are processed:
+
+- **Scene** (default: the current scene): all SCS Roots in the scene.
+- **Collection**: SCS Roots in the collection, including its child collections.
 
 - Both paths of every SCS Root are processed: the **custom export path** and the **animations custom export path**.
 - Each changed path is printed to the console. The report says how many paths in how many roots were changed.
@@ -63,7 +73,7 @@ Searches the custom export paths of all SCS Root objects in the current scene an
   - A missing export folder is created first, as long as it is inside the SCS Project Base Path.
   - Roots with export switched off are not exported.
   - If one root fails to export, the others still get exported, and the final report names the roots that failed.
-  - Unchanged roots are never exported, regardless of the export scope setting.
+  - Unchanged roots, and roots outside the chosen scope, are never exported, regardless of the export scope setting.
 - To avoid exporting again by accident, this tool has no **Adjust Last Operation** panel. The replace itself can be undone
   with Ctrl + Z, but files that were already exported stay on disk.
 
@@ -73,6 +83,7 @@ Both Replace tools open the same dialog:
 
 | Option | Description |
 | --- | --- |
+| **Replace In** | Where replacing is done, picked from a hierarchy like the outliner's. Scenes come first, with the current scene on top as the default. Under each scene are the collections that contain SCS Roots, nested as in the outliner; collections without any SCS Root are left out. Replace Texture Paths also lists the SCS Roots themselves under their collections. |
 | **Search for** | Text to search for, or a regular expression. |
 | **Replace** | Text that replaces every match. |
 | **Case Sensitive** | Match upper and lower case exactly. Off by default, so `Vehicle` also matches `vehicle`. |

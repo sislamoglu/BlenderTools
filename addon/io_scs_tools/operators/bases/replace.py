@@ -18,14 +18,136 @@
 
 # Copyright (C) 2026: SCS Software
 
+import bpy
 import re
 from bpy.props import StringProperty, BoolProperty
+from io_scs_tools.consts import Icons as _ICONS_consts
+from io_scs_tools.internals.icons import get_icon as _get_icon
+from io_scs_tools.utils import object as _object_utils
+
+_SCOPE_SEPARATOR = "\t"
+_SCOPE_INDENT = "      "
+_scope_items_cache = {}
+"""Last returned scope enum items per roots inclusion, Python has to keep references to dynamic enum items strings."""
+
+
+def _is_scs_root(obj):
+    return obj.type == 'EMPTY' and obj.scs_props.empty_object_type == 'SCS_Root'
 
 
 class Replace:
-    """Base class for search & replace operators: search/replace properties with case sensitive and regular expressions options.
-    NOTE: Can not be used directly, only trough inheriting!
+    """Base class for search & replace operators: search/replace properties with case sensitive and regular expressions options
+    and scope, selecting scene, collection or SCS Root under which replacing is done.
+    NOTE: Can not be used directly, only trough inheriting! Inheriting class has to define "scope" property using
+    "get_scope_items" as items callback, e.g.:
+    scope: EnumProperty(name="Replace In", items=lambda self, context: Replace.get_scope_items(context, True), options={'SKIP_SAVE'})
     """
+
+    @staticmethod
+    def get_scope_items(context, include_roots):
+        """Gets scope enum items as hierarchy: scenes (current one first, thus default) > collections containing SCS Roots
+        (nested as in outliner) > optionally SCS Roots themselves.
+
+        :param context: Blender context
+        :type context: bpy.types.Context
+        :param include_roots: should SCS Roots be listed as items too
+        :type include_roots: bool
+        :return: enum items
+        :rtype: list[tuple]
+        """
+        items = []
+        identifiers = set()
+        root_icon = _get_icon(_ICONS_consts.Types.scs_root)
+
+        def add(identifier, name, description, icon, depth):
+            if identifier in identifiers:  # collections and objects can be linked in multiple places, list only first one
+                return
+            identifiers.add(identifier)
+            items.append((identifier, _SCOPE_INDENT * depth + name, description, icon, len(items)))
+
+        def add_roots(scene, objects, depth):
+            if not include_roots:
+                return
+            for obj in sorted((obj for obj in objects if _is_scs_root(obj)), key=lambda o: o.name):
+                add(_SCOPE_SEPARATOR.join(("ROOT", scene.name, obj.name)), obj.name,
+                    "Only SCS Root %r with its objects" % obj.name, root_icon, depth)
+
+        def add_collection(scene, collection, depth):
+            if not any(_is_scs_root(obj) for obj in collection.all_objects):
+                return
+            add(_SCOPE_SEPARATOR.join(("COLLECTION", scene.name, collection.name)), collection.name,
+                "All SCS Roots in collection %r (incl. its child collections) with their objects" % collection.name,
+                'OUTLINER_COLLECTION', depth)
+            for child in collection.children:
+                add_collection(scene, child, depth + 1)
+            add_roots(scene, collection.objects, depth + 1)
+
+        scenes = list(bpy.data.scenes)
+        if context.scene in scenes:
+            scenes.remove(context.scene)
+            scenes.insert(0, context.scene)
+
+        for scene in scenes:
+            add(_SCOPE_SEPARATOR.join(("SCENE", scene.name)), scene.name, "All objects in scene %r" % scene.name, 'SCENE_DATA', 0)
+            for child in scene.collection.children:
+                add_collection(scene, child, 1)
+            add_roots(scene, scene.collection.objects, 1)
+
+        _scope_items_cache[include_roots] = items
+        return items
+
+    def get_scope(self, context):
+        """Gets scene and collection or SCS Root selected by scope property.
+
+        :param context: Blender context
+        :type context: bpy.types.Context
+        :return: scope type ("SCENE", "COLLECTION" or "ROOT"), scene and collection/SCS Root (None for scene)
+        :rtype: (str, bpy.types.Scene, bpy.types.Collection | bpy.types.Object | None)
+        """
+        kind, scene_name, name = (self.scope.split(_SCOPE_SEPARATOR) + ["", ""])[:3]
+        scene = bpy.data.scenes.get(scene_name, context.scene)
+
+        if kind == "COLLECTION" and name in bpy.data.collections:
+            return kind, scene, bpy.data.collections[name]
+        if kind == "ROOT" and name in bpy.data.objects:
+            return kind, scene, bpy.data.objects[name]
+
+        return "SCENE", scene, None
+
+    def get_scope_roots(self, context):
+        """Gets SCS Roots within selected scope.
+
+        :param context: Blender context
+        :type context: bpy.types.Context
+        :return: SCS Root objects
+        :rtype: list[bpy.types.Object]
+        """
+        kind, scene, data = self.get_scope(context)
+        if kind == "ROOT":
+            return [data]
+
+        objects = data.all_objects if kind == "COLLECTION" else scene.objects
+        return [obj for obj in objects if _is_scs_root(obj)]
+
+    def get_scope_objects(self, context):
+        """Gets objects within selected scope: all scene objects for scene,
+        otherwise SCS Roots and objects belonging to them (nested SCS Roots only if they are within scope themselves).
+
+        :param context: Blender context
+        :type context: bpy.types.Context
+        :return: objects
+        :rtype: list[bpy.types.Object]
+        """
+        kind, scene, data = self.get_scope(context)
+        if kind == "SCENE":
+            return list(scene.objects)
+
+        objects = []
+        for root_obj in self.get_scope_roots(context):
+            objects.append(root_obj)
+            objects.extend(obj for obj in _object_utils.get_children(root_obj) if _object_utils.get_scs_root(obj) == root_obj)
+
+        return objects
 
     search_for: StringProperty(
         name="Search for",
@@ -149,6 +271,22 @@ class Replace:
 
         return None
 
+    def draw_scope(self, layout):
+        """Draws scope property as menu button showing selected item name without hierarchy indentation.
+
+        :param layout: Blender UI Layout to draw to
+        :type layout: bpy.types.UILayout
+        """
+        kind, scene_name, name = (self.scope.split(_SCOPE_SEPARATOR) + ["", ""])[:3]
+        icons = {"SCENE": 'SCENE_DATA', "COLLECTION": 'OUTLINER_COLLECTION', "ROOT": 'OUTLINER_OB_EMPTY'}
+
+        # split same as property split layout
+        split = layout.split(factor=0.4, align=True)
+        label_row = split.row()
+        label_row.alignment = 'RIGHT'
+        label_row.label(text="Replace In")
+        split.prop_menu_enum(self, "scope", text=scene_name if kind == "SCENE" else name, icon=icons.get(kind, 'SCENE_DATA'))
+
     def draw_replace_props(self, layout):
         """Draws search & replace properties, with warning if regular expression is invalid or its groups are unused.
 
@@ -160,6 +298,8 @@ class Replace:
 
         # empty search is not an error worth warning about, user just didn't enter it yet
         error = self.get_error() if self.search_for != "" else None
+
+        self.draw_scope(layout)
 
         col = layout.column()
         col.alert = error is not None and self.use_regex
