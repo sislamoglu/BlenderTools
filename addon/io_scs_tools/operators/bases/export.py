@@ -91,24 +91,13 @@ class SCSExportHelper:
 
         export_scope = _get_scs_globals().export_scope
         if export_scope == "selection":
+            # any selected object exports whole SCS Game Object of its closest SCS Root
             for root in _object_utils.gather_scs_roots(bpy.context.selected_objects):
                 objs_to_export.append(root)
 
-                children = _object_utils.get_children(root)
-                children_unselected = []
-                children_selected = []
-
-                for child_obj in children:
-                    if child_obj.select_get():
-                        children_selected.append(child_obj)
-                    elif child_obj.users_scene:  # unlinked objects shouldn't be exported
-                        children_unselected.append(child_obj)
-
-                # if any children was selected make sure, to export only them
-                if len(children_selected) > 0:
-                    objs_to_export.extend(children_selected)
-                else:
-                    objs_to_export.extend(children_unselected)
+                for child_obj in _object_utils.get_children(root):
+                    if child_obj.users_scene:  # unlinked objects shouldn't be exported
+                        objs_to_export.append(child_obj)
         elif export_scope == "scene":
             objs_to_export = tuple(bpy.context.scene.objects)
         elif export_scope == "scenes":
