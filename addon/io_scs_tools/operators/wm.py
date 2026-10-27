@@ -480,7 +480,13 @@ class SCS_TOOLS_OT_CloseDialog(bpy.types.Operator):
     bl_options = {'INTERNAL'}
 
     def execute(self, context):
-        return {'CANCELLED'}
+        # NOTE: dialogs never close on their own buttons (only on Escape, Enter or their built-in buttons) and Python
+        # can't close them, but Blender closes all popups of the window when workspace is set, so set the current one again
+        window = context.window
+        if window and window.workspace:
+            window.workspace = window.workspace
+
+        return {'FINISHED'}
 
 
 classes = (
