@@ -25,6 +25,7 @@ from bpy.app.handlers import persistent
 from io_scs_tools.internals import looks as _looks
 from io_scs_tools.internals import preview_models as _preview_models
 from io_scs_tools.internals.connections.wrappers import collection as _connections_wrapper
+from io_scs_tools.utils import baker as _baker_utils
 from io_scs_tools.utils import get_scs_globals as _get_scs_globals
 from io_scs_tools.utils import object as _object_utils
 from io_scs_tools.utils import view3d as _view3d_utils
@@ -408,6 +409,19 @@ def __object_rename__(old_name, new_name):
 
     # send rename notify to preview models
     _preview_models.rename(old_name, new_name)
+
+    # rename baking setup files of SCS Root, only on real rename (on duplicate old object still exists)
+    obj = bpy.data.objects.get(new_name)
+    if obj and obj.scs_props.empty_object_type == 'SCS_Root' and old_name not in bpy.data.objects:
+        messages = _baker_utils.rename_setups(obj, old_name, bpy.context.scene)
+        for msg_type, msg in messages:
+            lprint(("W %s" if msg_type == 'WARNING' else "I %s"), (msg,))
+
+        # show report once out of depsgraph update, as it's shown by operator
+        if any(msg_type == 'WARNING' for msg_type, _ in messages):
+            def show_report():
+                lprint("I Baking setups updated for renamed SCS Root %r.", (new_name,), report_warnings=1)
+            bpy.app.timers.register(show_report, first_interval=0.0)
 
 
 def _fix_ex_parent(obj):

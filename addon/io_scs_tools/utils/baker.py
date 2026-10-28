@@ -520,6 +520,122 @@ def get_setup_dependencies(dirpath, model_name):
     return dependencies
 
 
+def _replace_model_paths(setup_text, prop_names, old_name, new_name):
+    """Replaces model file name in given model path properties of baking setup text, if it's the old model.
+
+    :return: tuple of (new text, number of replaced paths)
+    :rtype: tuple[str, int]
+    """
+    regex = re.compile(r'^(\s*(?:%s)\s*:\s*")([^"]*)(")' % "|".join(prop_names), re.MULTILINE)
+    replaced = []
+
+    def replace(match):
+        path = match.group(2)
+        dirname, filename = os.path.split(path.replace("\\", "/"))
+        if filename != old_name + ".pmd":
+            return match.group(0)
+        replaced.append(path)
+        return match.group(1) + (dirname + "/" if dirname else "") + new_name + ".pmd" + match.group(3)
+
+    return regex.sub(replace, setup_text), len(replaced)
+
+
+def rename_setups(root_obj, old_name, scene):
+    """Handles rename of SCS Root in baking setups, as they are bound to model file names:
+    1. its own baking setup "<old>.bake" is renamed to "<new>.bake" and its target model path is changed,
+    2. textures baked for old name ("<old>_baked_*.tga/tobj") are deleted, as baker names them after target,
+       so they have to be baked again under new name,
+    3. baking setups using it as source get their source model path changed.
+    Files are changed only inside SCS Project Base Path.
+
+    :param root_obj: renamed SCS Root object
+    :type root_obj: bpy.types.Object
+    :param old_name: old name of SCS Root
+    :type old_name: str
+    :param scene: scene with SCS Roots
+    :type scene: bpy.types.Scene
+    :return: list of (type, message) tuples describing what was done
+    :rtype: list[tuple[str, str]]
+    """
+    new_name = root_obj.name
+    dirpath = get_export_dirpath(root_obj)
+    scs_project_path = _get_scs_globals().scs_project_path
+    if not scs_project_path or not _path_utils.startswith(dirpath, scs_project_path) or not os.path.isdir(dirpath):
+        return []
+
+    messages = []
+    old_setup_filepath = _path_utils.readable_norm(os.path.join(dirpath, old_name + _BAKER_consts.setup_ext))
+    new_setup_filepath = get_setup_filepath(root_obj)
+
+    # 1. & 2. own baking setup
+    if os.path.isfile(old_setup_filepath):
+
+        if os.path.isfile(new_setup_filepath):
+            messages.append(('WARNING', "Baking setup %r wasn't renamed after %r, as %r already exists!" %
+                             (os.path.basename(old_setup_filepath), new_name, os.path.basename(new_setup_filepath))))
+        else:
+            # delete textures baked under old name: the ones listed in baking result and any other left in output directory
+            textures_dirpath = os.path.normpath(os.path.join(os.path.dirname(old_setup_filepath), _get_output_directory(old_setup_filepath)))
+            texture_filepaths = set()
+            for texture_path in _read_generated_textures(old_setup_filepath):
+                texture_filepaths.add(os.path.normpath(os.path.join(os.path.dirname(old_setup_filepath), texture_path)))
+            if os.path.isdir(textures_dirpath):
+                for filename in os.listdir(textures_dirpath):
+                    if filename.startswith(old_name + "_baked_") and filename.endswith((".tga", ".tobj")):
+                        texture_filepaths.add(os.path.join(textures_dirpath, os.path.splitext(filename)[0]))
+
+            deleted_count = 0
+            for texture_filepath in sorted(texture_filepaths):
+                for ext in (".tga", ".tobj"):
+                    if os.path.isfile(texture_filepath + ext):
+                        os.remove(texture_filepath + ext)
+                        deleted_count += 1
+                        lprint("I Deleted baked texture of old name: %r", (_path_utils.readable_norm(texture_filepath + ext),))
+
+            with open(old_setup_filepath, encoding="utf-8", errors="replace") as f:
+                setup_text = f.read()
+
+            setup_text, _ = _replace_model_paths(setup_text, ("target_model_path", "cage_model_path"), old_name, new_name)
+
+            # baked textures are gone, so baking result can't list them anymore
+            setup_text = re.sub(r'^\s*generated_textures(\[\d*\])?(_hash)?\s*:.*\n?', "", setup_text, flags=re.MULTILINE)
+
+            with open(new_setup_filepath, mode="w", encoding="utf-8") as f:
+                f.write(setup_text)
+            os.remove(old_setup_filepath)
+
+            messages.append(('WARNING', "Baking setup renamed to %r and %i baked texture file(s) of %r deleted, bake %r again." %
+                             (os.path.basename(new_setup_filepath), deleted_count, old_name, new_name)))
+
+    # 3. baking setups using renamed model as source
+    setup_filepaths = find_setup_filepaths([dirpath], scene)
+    old_model_filepath = _path_utils.full_norm(os.path.join(dirpath, old_name + ".pmd"))
+    for setup_filepath in setup_filepaths:
+        model_filepaths = read_setup_model_filepaths(setup_filepath)
+        if not model_filepaths or model_filepaths[0] != old_model_filepath:
+            continue
+        if not _path_utils.startswith(setup_filepath, scs_project_path):
+            continue
+
+        with open(setup_filepath, encoding="utf-8", errors="replace") as f:
+            setup_text = f.read()
+
+        setup_text, replaced_count = _replace_model_paths(setup_text, ("source_model_path", "subject_model_path"), old_name, new_name)
+        if replaced_count:
+            with open(setup_filepath, mode="w", encoding="utf-8") as f:
+                f.write(setup_text)
+            messages.append(('INFO', "Source of baking setup %r changed to %r." % (os.path.basename(setup_filepath), new_name)))
+
+    # keep source model paths of loaded baking setups in sync
+    for root in get_scs_roots(scene):
+        setup = root.scs_props.bake_setup
+        source_dirname, source_filename = os.path.split(setup.source_model_path.replace("\\", "/"))
+        if source_filename == old_name + ".pmd":
+            setup.source_model_path = (source_dirname + "/" if source_dirname else "") + new_name + ".pmd"
+
+    return messages
+
+
 def setup_imported_root(root_obj, dirpath, model_name, scene):
     """Prepares baking for SCS Root imported from given directory:
     1. if imported model is source or target of any baking setup in its directory, its export path is set to that directory,

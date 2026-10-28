@@ -163,6 +163,23 @@ Importing a PIM also loads its baking setup:
 - As in the Maya tools, the PIM and PIT headers list the baking setups the model is used in as `Dependency` lines
   (e.g. `Dependency: "./truck_lod1.bake"`). Import accepts them and export writes them, for both the source and the target.
 
+### Renaming a baked SCS Root
+
+Baking setups and baked textures are bound to model file names, so renaming an SCS Root (e.g. `truck_lod1` to
+`truck_mid`) updates them:
+
+- Its baking setup `truck_lod1.bake` is renamed to `truck_mid.bake` and its target model path is changed. The file is
+  edited, not rewritten, so all its other settings stay as they were.
+- Textures baked under the old name (`truck_lod1_baked_*.tga` and `.tobj`, both those listed in the setup and any other
+  left in the output folder) are deleted and the list of generated textures is removed from the setup. A warning reports
+  how many files were deleted: bake the renamed root again (**Bake**, or export with **Bake on Export**).
+- Baking setups using the renamed root as source (e.g. `truck_lod2.bake`) get their source model path changed.
+  Renaming a source doesn't delete any textures, as baked textures are named after the target.
+
+Files are only changed inside the SCS Project Base Path. If `<new name>.bake` already exists, nothing is renamed or
+deleted and a warning is shown. Duplicating an SCS Root doesn't change any files. Undoing the rename restores the
+object name, but not the renamed or deleted files.
+
 ### Baking on export
 
 With **Bake on Export** on (per scene, on by default), every export also bakes:
