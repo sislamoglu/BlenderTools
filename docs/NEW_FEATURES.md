@@ -365,9 +365,10 @@ Hide states are remembered and restored after export, also when the export fails
 
 - **Materials are merged on import**: after each imported PIM, duplicates of SCS materials (e.g. `glass.001` of existing
   `glass`) are merged the same way as **Merge SCS Materials** with **All** objects and **Name & Effect & Attributes**, so
-  importing several models or the same model again doesn't pile up material copies. Materials whose looks differ aren't
-  merged. Imported materials are also created without Blender's `.NNN` suffix in their alias (models exported from
-  Blender can have aliases like `shadow_caster.003`), so they can be merged.
+  importing several models or the same model again doesn't pile up material copies. Imported materials keep their alias
+  names from the file; a `name.NNN` material is merged into material `name` only if its effect and attributes in looks
+  match, otherwise it keeps its own name. Materials without a base material (e.g. `carpaint.002` when there's no
+  `carpaint`) aren't merged, the import report says which one to rename to merge them.
 - **PIT files from newer SCS Maya tools** (`PIT Exporter: 1.05`) are imported with proper materials. These store each
   material as an `AutoMat` section with embedded SII content (`xmat_auto_header` effect, `xmat_input_*` attributes and
   `xmat_sampler` textures) and their PIM holds only `Effect: "UNUSED"`. Previously all such materials lost their shader
