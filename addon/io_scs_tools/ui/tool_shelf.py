@@ -19,11 +19,15 @@
 # Copyright (C) 2013-2019: SCS Software
 
 import bpy
+import os
 from bpy.types import Panel
 from . import shared as _shared
 from . import outliner as _outliner
+from ..utils import baker as _baker_utils
 from ..utils import object as _object_utils
+from ..utils import path as _path_utils
 from ..utils import get_scs_globals as _get_scs_globals
+from ..consts import Baker as _BAKER_consts
 from ..consts import Icons as _ICONS_consts
 from ..consts import LampTools as _LT_consts
 from ..consts import Operators as _OP_consts
@@ -559,6 +563,113 @@ class SCS_TOOLS_PT_InteriorWindowTool(_ToolShelfBlDefs, Panel):
         body_col = layout.column(align=True)
         body_col.operator("mesh.scs_tools_fix_vertex_normals", text="Fix Vertex Normals", icon='NORMALS_VERTEX_FACE')
 
+class SCS_TOOLS_PT_LODBaker(_ToolShelfBlDefs, Panel):
+    """
+    Creates LOD Baker panel in the SCS Tools tab, for editing baking setup of active object's SCS Root (target).
+    """
+    bl_context = "objectmode"
+    bl_label = "LOD Baker"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == "OBJECT"
+
+    def draw(self, context):
+        if not self.poll(context):
+            self.layout.label(text="Not in 'Object Mode'!", icon="INFO")
+            return
+
+        layout = self.layout
+
+        target_root = _object_utils.get_scs_root(context.active_object) if context.active_object else None
+        if target_root is None:
+            layout.label(text="Select object of SCS Root to bake into.", icon="INFO")
+            return
+
+        setup = target_root.scs_props.bake_setup
+        setup_filepath = _baker_utils.get_setup_filepath(target_root)
+        setup_exists = os.path.isfile(setup_filepath)
+
+        # target info
+        box = layout.box()
+        col = box.column(align=True)
+        col.label(text="Target: %s" % target_root.name, icon_value=get_icon(_ICON_TYPES.scs_root))
+        scs_project_path = _get_scs_globals().scs_project_path
+        if scs_project_path and _path_utils.startswith(setup_filepath, scs_project_path):
+            shown_filepath = "//" + os.path.relpath(setup_filepath, scs_project_path).replace("\\", "/")
+        else:
+            shown_filepath = setup_filepath
+        col.label(text=shown_filepath, icon='CHECKMARK' if setup_exists else 'FILE_NEW')
+        col.label(text="Textures: %s_baked_[...].tga" % target_root.name, icon='TEXTURE')
+
+        # source
+        row = layout.row(align=True)
+        row.prop(setup, "source_root")
+        row.operator("object.scs_tools_bake_setup_auto_source", text="", icon='AUTO')
+
+        # cage
+        col = layout.column(align=True)
+        col.prop(setup, "near_plane")
+        col.prop(setup, "far_plane")
+
+        # outputs
+        col = layout.column(align=True)
+        col.prop(setup, "aspect_ratio")
+        for tex_type in _baker_utils.get_available_texture_types(setup_filepath):
+            output = setup.get_output(tex_type)
+            options = _BAKER_consts.texture_type_options[tex_type]
+
+            row = col.row(align=True)
+            row.prop(output, "enabled", text=_BAKER_consts.texture_type_labels[tex_type])
+            sub_row = row.row(align=True)
+            sub_row.enabled = output.enabled
+            sub_row.prop(output, "size", text="")
+            if _BAKER_consts.TextureOptions.per_look in options:
+                sub_row.prop(output, "per_look", text="", icon='MATERIAL', toggle=True)
+            else:
+                sub_row.label(text="", icon='BLANK1')
+            if _BAKER_consts.TextureOptions.per_color_variant in options:
+                sub_row.prop(output, "per_color_variant", text="", icon='COLOR', toggle=True)
+            else:
+                sub_row.label(text="", icon='BLANK1')
+
+        # setup file operations
+        col = layout.column(align=True)
+        row = col.row(align=True)
+        row.operator("object.scs_tools_bake_setup_save", text="Save", icon='FILE_TICK')
+        sub_row = row.row(align=True)
+        sub_row.enabled = setup_exists
+        sub_row.operator("object.scs_tools_bake_setup_load", text="Load", icon='FILE_REFRESH')
+        row = col.row(align=True)
+        row.operator("object.scs_tools_bake_setup_check", text="Check", icon='VIEWZOOM')
+        sub_row = row.row(align=True)
+        sub_row.enabled = setup_exists
+        sub_row.operator("object.scs_tools_bake_setup_delete", text="Delete", icon='TRASH')
+
+
+class SCS_TOOLS_PT_LODBakerOptions(_ToolShelfBlDefs, Panel):
+    """
+    Creates sub-panel with global options of LOD Baker panel.
+    """
+    bl_context = "objectmode"
+    bl_label = "Options"
+    bl_parent_id = SCS_TOOLS_PT_LODBaker.__name__
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return (context.mode == "OBJECT" and context.active_object is not None and
+                _object_utils.get_scs_root(context.active_object) is not None)
+
+    def draw(self, context):
+        setup = _object_utils.get_scs_root(context.active_object).scs_props.bake_setup
+
+        col = self.layout.column(align=True)
+        for global_option in _BAKER_consts.global_options:
+            col.prop(setup, global_option)
+
+
 class SCS_TOOLS_PT_VColoring(_ToolShelfBlDefs, Panel):
     bl_label = "VColoring"
 
@@ -648,6 +759,8 @@ classes = (
     SCS_TOOLS_PT_LampSwitcher,
     SCS_TOOLS_PT_LampTool,
     SCS_TOOLS_PT_InteriorWindowTool,
+    SCS_TOOLS_PT_LODBaker,
+    SCS_TOOLS_PT_LODBakerOptions,
     SCS_TOOLS_PT_VColoring,
     SCS_TOOLS_PT_VertexColorStatsTool,
     SCS_TOOLS_PT_VertexColorWrapTool,
@@ -667,6 +780,7 @@ def register():
     SCS_TOOLS_MT_MainMenu.append_sidebar_entry("Sidebar - Lamp Switcher", SCS_TOOLS_PT_LampSwitcher.__name__)
     SCS_TOOLS_MT_MainMenu.append_sidebar_entry("Sidebar - Lamp Tool", SCS_TOOLS_PT_LampTool.__name__)
     SCS_TOOLS_MT_MainMenu.append_sidebar_entry("Sidebar - Interior Window Tool", SCS_TOOLS_PT_InteriorWindowTool.__name__)
+    SCS_TOOLS_MT_MainMenu.append_sidebar_entry("Sidebar - LOD Baker", SCS_TOOLS_PT_LODBaker.__name__)
     SCS_TOOLS_MT_MainMenu.append_sidebar_entry("Sidebar - VColoring", SCS_TOOLS_PT_VColoring.__name__)
     SCS_TOOLS_MT_MainMenu.append_sidebar_entry("Sidebar - VColor Stats", SCS_TOOLS_PT_VertexColorStatsTool.__name__)
     SCS_TOOLS_MT_MainMenu.append_sidebar_entry("Sidebar - VColor Wrap", SCS_TOOLS_PT_VertexColorWrapTool.__name__)

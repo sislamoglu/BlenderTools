@@ -24,8 +24,10 @@ from bpy.props import (StringProperty,
                        CollectionProperty,
                        IntProperty,
                        EnumProperty,
-                       FloatProperty)
+                       FloatProperty,
+                       PointerProperty)
 from collections import OrderedDict
+from io_scs_tools.consts import Baker as _BAKER_consts
 from io_scs_tools.consts import Icons as _ICONS_consts
 from io_scs_tools.consts import Look as _LOOK_consts
 from io_scs_tools.consts import Part as _PART_consts
@@ -267,10 +269,137 @@ class ObjectAnimationInventoryItem(bpy.types.PropertyGroup):
     )
 
 
+class ObjectBakeOutput(bpy.types.PropertyGroup):
+    """
+    Single baked texture output of LOD baking setup.
+    """
+
+    enabled: BoolProperty(
+        name="Enabled",
+        description="Bake this texture type",
+        default=False,
+    )
+    size: EnumProperty(
+        name="Size",
+        description="Width of baked texture in pixels (height is computed from aspect ratio)",
+        items=[(str(size), "%s px" % size, "") for size in _BAKER_consts.texture_sizes],
+        default='256',
+    )
+    per_look: BoolProperty(
+        name="Per Look",
+        description="Bake separate texture for each look",
+        default=False,
+    )
+    per_color_variant: BoolProperty(
+        name="Per Color Variant",
+        description="Bake separate texture for each color variant",
+        default=False,
+    )
+
+
+class ObjectBakeSetup(bpy.types.PropertyGroup):
+    """
+    LOD baking setup of SCS Root (target), saved into "<root name>.bake" file beside exported PIM.
+    """
+
+    def source_root_poll(self, obj):
+        return obj.scs_props.empty_object_type == 'SCS_Root' and obj != self.id_data
+
+    source_root: PointerProperty(
+        name="Source",
+        description="SCS Root of high poly model, which is baked onto this SCS Root",
+        type=bpy.types.Object,
+        poll=source_root_poll,
+    )
+    near_plane: FloatProperty(
+        name="Near Plane",
+        description="Cage distance below target surface from which source surface is captured",
+        default=_BAKER_consts.default_near_plane,
+        min=0.0, soft_min=0.05, soft_max=1.0,
+        step=1,
+        precision=3,
+    )
+    far_plane: FloatProperty(
+        name="Far Plane",
+        description="Cage distance above target surface from which source surface is captured",
+        default=_BAKER_consts.default_far_plane,
+        min=0.0, soft_min=0.1, soft_max=100.0,
+        precision=3,
+    )
+    aspect_ratio: EnumProperty(
+        name="Aspect Ratio",
+        description="Aspect ratio (width:height) of all baked textures",
+        items=[("%s_%s" % ratio, "%s : %s" % ratio, "") for ratio in _BAKER_consts.aspect_ratios],
+        default='1_1',
+    )
+
+    # GLOBAL OPTIONS (named the same as options in baking setup file)
+    bake_source_normal_maps: BoolProperty(
+        name="Bake Through Material Normals",
+        description="Use normal maps of source materials when baking",
+        default=False,
+    )
+    disable_glass_material: BoolProperty(
+        name="Do Not Bake Glass",
+        description="Ignore glass materials of source when baking",
+        default=False,
+    )
+    texture_addressing_mode_u_repeat: BoolProperty(
+        name="Repeat in U Direction",
+        description="Baked texture repeats in U direction",
+        default=False,
+    )
+    texture_addressing_mode_v_repeat: BoolProperty(
+        name="Repeat in V Direction",
+        description="Baked texture repeats in V direction",
+        default=False,
+    )
+    bake_light_hookups: BoolProperty(
+        name="Bake Light Hookups (Experimental)",
+        description="Bake light hookups of source",
+        default=False,
+    )
+
+    # OUTPUTS (one per texture type from Baker.texture_types)
+    out_diffuse: PointerProperty(type=ObjectBakeOutput)
+    out_normal_map: PointerProperty(type=ObjectBakeOutput)
+    out_baked_specular: PointerProperty(type=ObjectBakeOutput)
+    out_baked_environment: PointerProperty(type=ObjectBakeOutput)
+    out_baked_lightmap: PointerProperty(type=ObjectBakeOutput)
+    out_baked_paint: PointerProperty(type=ObjectBakeOutput)
+    out_diffuse_specular: PointerProperty(type=ObjectBakeOutput)
+    out_diffuse_alpha: PointerProperty(type=ObjectBakeOutput)
+    out_diffuse_specular_alpha: PointerProperty(type=ObjectBakeOutput)
+
+    def get_output(self, texture_type):
+        """Gets output settings for given texture type.
+
+        :param texture_type: texture type from Baker.texture_types
+        :type texture_type: str
+        :return: output settings
+        :rtype: ObjectBakeOutput
+        """
+        return getattr(self, "out_" + texture_type)
+
+    def get_aspect_ratio(self):
+        """Gets aspect ratio as tuple of (width, height).
+
+        :rtype: tuple[int, int]
+        """
+        width, height = self.aspect_ratio.split("_")
+        return int(width), int(height)
+
+
 class ObjectSCSTools(bpy.types.PropertyGroup):
     """
     SCS Tools Object Variables - ...Object.scs_props...
     """
+
+    # LOD BAKER SETUP (used only on SCS Root objects)
+    bake_setup: PointerProperty(
+        name="Baking Setup",
+        type=ObjectBakeSetup,
+    )
 
     # HELPER VARIABLES
     locators_orig_display_size: FloatProperty(name="Locator Original Display Size")
@@ -1329,6 +1458,8 @@ classes = (
     ObjectPartInventoryItem,
     ObjectVariantPartInclusionItem,
     ObjectVariantInventoryItem,
+    ObjectBakeOutput,
+    ObjectBakeSetup,
     ObjectSCSTools,
 )
 

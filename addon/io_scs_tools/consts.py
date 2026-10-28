@@ -504,6 +504,76 @@ class Bones:
     """Pose bone custom property dictionary key for saving initial bone scale on PIS import."""
 
 
+class Baker:
+    """LOD baker constants, matching SCS Maya tools baker (baking setup "*.bake" files).
+    """
+    setup_ext = ".bake"
+    bake_sources_dir = "bake_sources"
+    baked_effect_prefix = "eut2.baked"
+
+    default_near_plane = 0.25
+    """Positive near plane distance; it's written negated into baking setup."""
+    default_far_plane = 10.0
+
+    texture_sizes = (64, 128, 256, 512, 1024, 2048)
+    aspect_ratios = ((1, 1), (2, 1), (4, 1), (1, 4))
+    """(width, height) as width:height"""
+
+    class TextureOptions:
+        per_color_variant = "bake_per_color_variant"
+        per_look = "bake_per_look"
+
+    texture_types = (
+        "diffuse",
+        "normal_map",
+        "baked_specular",
+        "baked_environment",
+        "baked_lightmap",
+        "baked_paint",
+        "diffuse_specular",
+        "diffuse_alpha",
+        "diffuse_specular_alpha",
+    )
+    """Bakeable texture types in order shown in UI."""
+
+    texture_type_labels = {
+        "diffuse": "Diffuse",
+        "normal_map": "Normal",
+        "baked_specular": "Specular",
+        "baked_environment": "Env",
+        "baked_lightmap": "Lightmap",
+        "baked_paint": "Paint",
+        "diffuse_specular": "Dif+Spec",
+        "diffuse_alpha": "Dif+Alpha",
+        "diffuse_specular_alpha": "Dif+Spec+A",
+    }
+    """Short texture type labels for UI."""
+
+    bake_sources_only_texture_types = ("diffuse_specular", "diffuse_alpha", "diffuse_specular_alpha")
+    """Texture types which can be baked only by baking setups inside bake sources directory."""
+
+    texture_type_options = {
+        "diffuse": (TextureOptions.per_look, TextureOptions.per_color_variant),
+        "normal_map": (TextureOptions.per_look,),
+        "baked_specular": (TextureOptions.per_look,),
+        "baked_lightmap": (TextureOptions.per_look, TextureOptions.per_color_variant),
+        "baked_environment": (TextureOptions.per_look,),
+        "baked_paint": (),
+        "diffuse_specular": (TextureOptions.per_look,),
+        "diffuse_alpha": (TextureOptions.per_look,),
+        "diffuse_specular_alpha": (TextureOptions.per_look,),
+    }
+    """Valid texture baking options per texture type."""
+
+    global_options = (
+        "bake_source_normal_maps",
+        "disable_glass_material",
+        "texture_addressing_mode_u_repeat",
+        "texture_addressing_mode_v_repeat",
+        "bake_light_hookups",
+    )
+
+
 class ConvHlpr:
     """Conversion helper constants
     """

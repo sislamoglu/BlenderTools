@@ -48,6 +48,7 @@ from io_scs_tools.utils import material as _material_utils
 from io_scs_tools.utils import view3d as _view3d_utils
 from io_scs_tools.utils import path as _path_utils
 from io_scs_tools.utils import animation as _animation_utils
+from io_scs_tools.utils import baker as _baker_utils
 from io_scs_tools.utils import get_scs_globals as _get_scs_globals
 
 
@@ -2824,6 +2825,111 @@ class SCSRoot:
             return self.invoke_replace_dialog(context, event)
 
 
+class Baker:
+    """
+    Wrapper class for better navigation in file
+    """
+
+    class _BakeSetupOperator:
+        """Base for operators working with LOD baking setup of active object's SCS Root (target)."""
+
+        @classmethod
+        def poll(cls, context):
+            return context.active_object is not None and _object_utils.get_scs_root(context.active_object) is not None
+
+        def report_check_messages(self, messages):
+            for msg_type, msg in messages:
+                self.report({msg_type}, msg)
+                lprint("E %s" if msg_type == 'ERROR' else "W %s", (msg,))
+
+    class SCS_TOOLS_OT_BakeSetupAutoSource(_BakeSetupOperator, bpy.types.Operator):
+        bl_label = "Guess Source"
+        bl_idname = "object.scs_tools_bake_setup_auto_source"
+        bl_description = ("Set source SCS Root by target name: 'name_lodN' is baked from 'name_lod(N-1)', "
+                          "if it doesn't exist from 'name'")
+        bl_options = {'REGISTER', 'UNDO'}
+
+        def execute(self, context):
+            target_root = _object_utils.get_scs_root(context.active_object)
+            source_root = _baker_utils.guess_source_root(target_root, _baker_utils.get_scs_roots(context.scene))
+            if source_root is None:
+                self.report({'WARNING'}, "No source SCS Root found for %r!" % target_root.name)
+                return {'CANCELLED'}
+
+            target_root.scs_props.bake_setup.source_root = source_root
+            self.report({'INFO'}, "Source set to %r." % source_root.name)
+            return {'FINISHED'}
+
+    class SCS_TOOLS_OT_BakeSetupLoad(_BakeSetupOperator, bpy.types.Operator):
+        bl_label = "Load Baking Setup"
+        bl_idname = "object.scs_tools_bake_setup_load"
+        bl_description = "Load baking setup of SCS Root from its '*.bake' file (written by SCS Blender or Maya tools)"
+        bl_options = {'REGISTER', 'UNDO'}
+
+        def execute(self, context):
+            target_root = _object_utils.get_scs_root(context.active_object)
+            success, message = _baker_utils.load_setup(target_root, context.scene)
+            self.report({'INFO'} if success else {'WARNING'}, message)
+            return {'FINISHED'}
+
+    class SCS_TOOLS_OT_BakeSetupSave(_BakeSetupOperator, bpy.types.Operator):
+        bl_label = "Save Baking Setup"
+        bl_idname = "object.scs_tools_bake_setup_save"
+        bl_description = "Write baking setup of SCS Root into '<root name>.bake' file beside its exported PIM file"
+        bl_options = {'REGISTER'}
+
+        def execute(self, context):
+            target_root = _object_utils.get_scs_root(context.active_object)
+            success, message = _baker_utils.save_setup(target_root)
+            if not success:
+                self.report({'ERROR'}, message)
+                return {'CANCELLED'}
+
+            messages = _baker_utils.get_check_messages(target_root, context.scene)
+            if messages:
+                self.report_check_messages(messages)
+                self.report({'WARNING'}, "Baking setup saved, but it has %s problem(s)!" % len(messages))
+            else:
+                self.report({'INFO'}, message)
+            return {'FINISHED'}
+
+    class SCS_TOOLS_OT_BakeSetupDelete(_BakeSetupOperator, bpy.types.Operator):
+        bl_label = "Delete Baking Setup"
+        bl_idname = "object.scs_tools_bake_setup_delete"
+        bl_description = "Delete '*.bake' file of SCS Root, so it's no longer a baking target"
+        bl_options = {'REGISTER'}
+
+        def invoke(self, context, event):
+            return context.window_manager.invoke_confirm(self, event)
+
+        def execute(self, context):
+            target_root = _object_utils.get_scs_root(context.active_object)
+            setup_filepath = _baker_utils.get_setup_filepath(target_root)
+            if not os.path.isfile(setup_filepath):
+                self.report({'WARNING'}, "Baking setup %r doesn't exist!" % setup_filepath)
+                return {'CANCELLED'}
+
+            os.remove(setup_filepath)
+            self.report({'INFO'}, "Baking setup deleted: %r" % setup_filepath)
+            return {'FINISHED'}
+
+    class SCS_TOOLS_OT_BakeSetupCheck(_BakeSetupOperator, bpy.types.Operator):
+        bl_label = "Check Baking Setup"
+        bl_idname = "object.scs_tools_bake_setup_check"
+        bl_description = "Check baking setup of SCS Root for problems which would prevent baking"
+        bl_options = {'REGISTER'}
+
+        def execute(self, context):
+            target_root = _object_utils.get_scs_root(context.active_object)
+            messages = _baker_utils.get_check_messages(target_root, context.scene)
+            if messages:
+                self.report_check_messages(messages)
+                self.report({'WARNING'}, "Baking setup of %r has %s problem(s)!" % (target_root.name, len(messages)))
+            else:
+                self.report({'INFO'}, "Baking setup of %r is OK." % target_root.name)
+            return {'FINISHED'}
+
+
 class Animation:
     """
     Wrapper class for better navigation in file
@@ -3150,6 +3256,12 @@ class SCS_TOOLS_OT_BlankOperator(bpy.types.Operator):
 classes = (
     Animation.SCS_TOOLS_OT_AddAnimation,
     Animation.SCS_TOOLS_OT_RemoveAnimation,
+
+    Baker.SCS_TOOLS_OT_BakeSetupAutoSource,
+    Baker.SCS_TOOLS_OT_BakeSetupLoad,
+    Baker.SCS_TOOLS_OT_BakeSetupSave,
+    Baker.SCS_TOOLS_OT_BakeSetupDelete,
+    Baker.SCS_TOOLS_OT_BakeSetupCheck,
 
     Collision.SCS_TOOLS_OT_SelectStaticCollisionObjects,
     Collision.SCS_TOOLS_OT_SwitchStaticCollisionObjects,
