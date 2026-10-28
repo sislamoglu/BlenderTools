@@ -166,26 +166,25 @@ Importing a PIM also loads its baking setup:
 ### Renaming a baked SCS Root
 
 Baking setups and baked textures are bound to model file names, so renaming an SCS Root (e.g. `truck_lod1` to
-`truck_mid`) updates them:
+`truck_mid`) creates a baking setup for the new name:
 
-- Its baking setup `truck_lod1.bake` is renamed to `truck_mid.bake` and its target model path is changed. The file is
-  edited, not rewritten, so all its other settings stay as they were.
-- Textures baked under the old name (`truck_lod1_baked_*.tga` and `.tobj`, both those listed in the setup and any other
-  left in the output folder) are deleted and the list of generated textures is removed from the setup. A warning reports
-  how many files were deleted: bake the renamed root again (**Bake**, or export with **Bake on Export**).
+- New baking setup `truck_mid.bake` is created from `truck_lod1.bake` with the target model path changed. All its other
+  settings are copied as they were, only the textures baked for the old name aren't listed in it. A warning asks to bake
+  the renamed root again (**Bake**, or export with **Bake on Export**), which creates `truck_mid_baked_*` textures.
+- The old baking setup `truck_lod1.bake` and its textures (`truck_lod1_baked_*.tga` and `.tobj`) are kept unchanged.
+  As its target isn't in the scene anymore, it isn't baked on export.
 - Baking setups using the renamed root as source (e.g. `truck_lod2.bake`) get their source model path changed.
-  Renaming a source doesn't delete any textures, as baked textures are named after the target.
 
-Files are only changed inside the SCS Project Base Path. If `<new name>.bake` already exists, nothing is renamed or
-deleted and a warning is shown. Duplicating an SCS Root doesn't change any files. Undoing the rename restores the
-object name, but not the renamed or deleted files.
+Files are only changed inside the SCS Project Base Path. If `<new name>.bake` already exists, it's left as it is and a
+warning is shown. Duplicating an SCS Root doesn't change any files. Undoing the rename restores the object name, but
+not the created or changed baking setups.
 
 ### Baking on export
 
 With **Bake on Export** on (per scene, on by default), every export also bakes:
 
 1. After the export, baking setups are looked up in the export folders of the exported roots and in the export folders
-   of all SCS Roots in the scene.
+   of all SCS Roots in the scene. Only setups whose target SCS Root is in the scene are used.
 2. The SCS baker is run for every baking setup whose **source or target** was exported. A setup is baked only after the
    setup that bakes its source, so LOD chains bake in order: exporting `truck` bakes `truck_lod1`, exports it again and
    then bakes `truck_lod2` from it.
@@ -193,9 +192,9 @@ With **Bake on Export** on (per scene, on by default), every export also bakes:
    `texture_over` (specular), `texture_mask` (environment), `texture_mask_1` (paint mask), `texture_nmap` (normal map)
    and `texture_lightmap`. A texture is skipped with a warning if the material doesn't have its flavor (`spec`,
    `add.env`, `paint`, `tsnmap`, `day`). Textures of other color variants than the first one aren't assigned, the game
-   uses them automatically.
-4. The target is exported again with the baked textures. If the target isn't in the scene, textures are still baked
-   but not assigned.
+   uses them automatically. Texture images already loaded in Blender are reloaded, as the baker overwrites textures
+   under the same names.
+4. The target is exported again with the baked textures.
 
 Baker messages and errors show in the export report. Exchange format (EF) export never bakes.
 

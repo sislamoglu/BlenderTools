@@ -241,8 +241,8 @@ class SCSExportHelper:
                 self.bake_exported(exported_roots)
 
     def bake_exported(self, exported_roots):
-        """Runs baker for baking setups whose source or target was exported, assigns baked textures to target per look
-        and exports target again. Targets exported again can be sources of further baking setups (LOD chains),
+        """Runs baker for baking setups whose source or target was exported and whose target is in the scene,
+        assigns baked textures to target per look and exports target again. Targets exported again can be sources of further baking setups (LOD chains),
         so baking continues until no baking setup depends on anything exported. Baking setup is baked after the
         baking setup baking its source, so chains are baked in proper order.
 
@@ -255,11 +255,21 @@ class SCSExportHelper:
         for root_obj, dirpath in exported_roots:
             exported_models.add(_path_utils.full_norm(os.path.join(dirpath, root_obj.name + ".pmd")))
 
+        # only setups with target in the scene are baked, others (e.g. kept setup of renamed SCS Root) are left as they are
         setups = {}
+        target_roots = {}
         for setup_filepath in _baker_utils.find_setup_filepaths({dirpath for _, dirpath in exported_roots}, scene):
             model_filepaths = _baker_utils.read_setup_model_filepaths(setup_filepath)
-            if model_filepaths:
-                setups[setup_filepath] = model_filepaths
+            if not model_filepaths:
+                continue
+
+            target_root = _baker_utils.get_root_by_model_filepath(scene, model_filepaths[1])
+            if target_root is None:
+                lprint("D Baking setup %r skipped, its target isn't in the scene.", (os.path.basename(setup_filepath),))
+                continue
+
+            setups[setup_filepath] = model_filepaths
+            target_roots[setup_filepath] = target_root
 
         messages = []
         baked = []
@@ -286,12 +296,7 @@ class SCSExportHelper:
                 continue
 
             target_model = setups[setup_filepath][1]
-            target_root = _baker_utils.get_root_by_model_filepath(scene, target_model)
-            if target_root is None:
-                messages.append(('WARNING', "Textures of %r were baked, but its target isn't in the scene, so they weren't assigned." %
-                                 setup_name))
-                baked.append(setup_name)
-                continue
+            target_root = target_roots[setup_filepath]
 
             messages.extend(_baker_utils.assign_baked_textures(target_root, setup_filepath))
 

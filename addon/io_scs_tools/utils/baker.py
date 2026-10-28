@@ -24,6 +24,7 @@ written beside exported PIM file in the same format as SCS Maya tools write it. 
 which bakes textures of source model onto target model.
 """
 
+import bpy
 import getpass
 import os
 import re
@@ -542,10 +543,10 @@ def _replace_model_paths(setup_text, prop_names, old_name, new_name):
 
 def rename_setups(root_obj, old_name, scene):
     """Handles rename of SCS Root in baking setups, as they are bound to model file names:
-    1. its own baking setup "<old>.bake" is renamed to "<new>.bake" and its target model path is changed,
-    2. textures baked for old name ("<old>_baked_*.tga/tobj") are deleted, as baker names them after target,
-       so they have to be baked again under new name,
-    3. baking setups using it as source get their source model path changed.
+    1. new baking setup "<new>.bake" is created from its own baking setup "<old>.bake" with target model path changed,
+       textures baked for old name aren't listed in it, as baker names textures after target, so they have to be baked
+       again under new name; old baking setup and textures baked for it are kept,
+    2. baking setups using it as source get their source model path changed.
     Files are changed only inside SCS Project Base Path.
 
     :param root_obj: renamed SCS Root object
@@ -567,47 +568,28 @@ def rename_setups(root_obj, old_name, scene):
     old_setup_filepath = _path_utils.readable_norm(os.path.join(dirpath, old_name + _BAKER_consts.setup_ext))
     new_setup_filepath = get_setup_filepath(root_obj)
 
-    # 1. & 2. own baking setup
+    # 1. new baking setup from own baking setup
     if os.path.isfile(old_setup_filepath):
 
         if os.path.isfile(new_setup_filepath):
-            messages.append(('WARNING', "Baking setup %r wasn't renamed after %r, as %r already exists!" %
-                             (os.path.basename(old_setup_filepath), new_name, os.path.basename(new_setup_filepath))))
+            messages.append(('WARNING', "Baking setup %r wasn't created from %r, as it already exists!" %
+                             (os.path.basename(new_setup_filepath), os.path.basename(old_setup_filepath))))
         else:
-            # delete textures baked under old name: the ones listed in baking result and any other left in output directory
-            textures_dirpath = os.path.normpath(os.path.join(os.path.dirname(old_setup_filepath), _get_output_directory(old_setup_filepath)))
-            texture_filepaths = set()
-            for texture_path in _read_generated_textures(old_setup_filepath):
-                texture_filepaths.add(os.path.normpath(os.path.join(os.path.dirname(old_setup_filepath), texture_path)))
-            if os.path.isdir(textures_dirpath):
-                for filename in os.listdir(textures_dirpath):
-                    if filename.startswith(old_name + "_baked_") and filename.endswith((".tga", ".tobj")):
-                        texture_filepaths.add(os.path.join(textures_dirpath, os.path.splitext(filename)[0]))
-
-            deleted_count = 0
-            for texture_filepath in sorted(texture_filepaths):
-                for ext in (".tga", ".tobj"):
-                    if os.path.isfile(texture_filepath + ext):
-                        os.remove(texture_filepath + ext)
-                        deleted_count += 1
-                        lprint("I Deleted baked texture of old name: %r", (_path_utils.readable_norm(texture_filepath + ext),))
-
             with open(old_setup_filepath, encoding="utf-8", errors="replace") as f:
                 setup_text = f.read()
 
             setup_text, _ = _replace_model_paths(setup_text, ("target_model_path", "cage_model_path"), old_name, new_name)
 
-            # baked textures are gone, so baking result can't list them anymore
+            # textures baked under old name belong to old baking setup
             setup_text = re.sub(r'^\s*generated_textures(\[\d*\])?(_hash)?\s*:.*\n?', "", setup_text, flags=re.MULTILINE)
 
             with open(new_setup_filepath, mode="w", encoding="utf-8") as f:
                 f.write(setup_text)
-            os.remove(old_setup_filepath)
 
-            messages.append(('WARNING', "Baking setup renamed to %r and %i baked texture file(s) of %r deleted, bake %r again." %
-                             (os.path.basename(new_setup_filepath), deleted_count, old_name, new_name)))
+            messages.append(('WARNING', "Baking setup %r created for renamed %r (%r and its baked textures were kept), bake %r again." %
+                             (os.path.basename(new_setup_filepath), new_name, os.path.basename(old_setup_filepath), new_name)))
 
-    # 3. baking setups using renamed model as source
+    # 2. baking setups using renamed model as source
     setup_filepaths = find_setup_filepaths([dirpath], scene)
     old_model_filepath = _path_utils.full_norm(os.path.join(dirpath, old_name + ".pmd"))
     for setup_filepath in setup_filepaths:
@@ -1096,6 +1078,18 @@ def assign_baked_textures(target_root, setup_filepath):
                 update_func(material)
 
     material.update_tag()
+
+    # baker overwrites textures under the same names, so images already loaded in Blender have to be reloaded
+    texture_filepaths = set()
+    for tex_str in textures.values():
+        tobj_filepath = _path_utils.get_abs_path(tex_str)
+        texture_filepath = _path_utils.get_texture_path_from_tobj(tobj_filepath) if tobj_filepath else None
+        if texture_filepath:
+            texture_filepaths.add(_path_utils.full_norm(texture_filepath))
+    for image in bpy.data.images:
+        if image.source == 'FILE' and image.filepath and _path_utils.full_norm(bpy.path.abspath(image.filepath)) in texture_filepaths:
+            image.reload()
+            lprint("D Reloaded baked texture image %r.", (image.name,))
 
     lprint("I Baked textures assigned to material %r of %r.", (material.name, target_root.name))
     return messages
