@@ -21,7 +21,7 @@
 import bpy
 import bmesh
 import array
-from re import match
+from re import match, sub
 from mathutils import Vector
 from io_scs_tools.consts import Mesh as _MESH_consts
 from io_scs_tools.consts import Operators as _OP_consts
@@ -874,7 +874,9 @@ def load_pim_file(context, filepath, terrain_points_trans=None, preview_model=Fa
         lprint("\nI ------ Creating materials: ------")
 
         for mat_i in materials_data:
-            mat = bpy.data.materials.new(materials_data[mat_i][0])
+            # strip Blender duplicate suffix of alias (e.g. "glass.002" exported from Blender),
+            # so material name gets base name if possible and duplicates can be merged after import
+            mat = bpy.data.materials.new(sub(r"\.\d{3}$", "", materials_data[mat_i][0]))
             mat.scs_props.mat_effect_name = materials_data[mat_i][1]
 
             materials_data[mat_i].append(materials_data[mat_i][0])

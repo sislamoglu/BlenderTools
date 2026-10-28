@@ -2965,6 +2965,24 @@ class Baker:
                           "to target per look (nothing is exported)")
         bl_options = {'REGISTER', 'UNDO'}
 
+        @classmethod
+        def poll(cls, context):
+            if not super().poll(context):
+                return False
+
+            target_root = _object_utils.get_scs_root(context.active_object)
+            source_root = target_root.scs_props.bake_setup.source_root
+            if source_root is None:
+                cls.poll_message_set("Source of baking setup isn't set")
+                return False
+
+            for root in (source_root, target_root):
+                if not os.path.isfile(_baker_utils.get_model_filepath(root)[:-len(".pmd")] + ".pim"):
+                    cls.poll_message_set("%r isn't exported yet, use Export & Bake" % root.name)
+                    return False
+
+            return True
+
         def execute(self, context):
             target_root = _object_utils.get_scs_root(context.active_object)
 

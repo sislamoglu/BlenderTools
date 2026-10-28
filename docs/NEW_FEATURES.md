@@ -147,9 +147,39 @@ Buttons:
 - **Delete** removes the `.bake` file after confirmation, so the root is no longer a baking target.
 - **Bake** saves the setup, stops if **Check** finds errors, runs the baker on the already exported source and target and
   assigns the baked textures to the target per look. Nothing is exported, so export the target afterwards to write the
-  textures into its PIT.
+  textures into its PIT. It's available only once both source and target are exported; its tooltip says which one isn't.
 - **Export & Bake** saves the setup, stops if **Check** finds errors, then exports source and target and bakes
   (see below). It bakes even when **Bake on Export** is off.
+
+### Baked material
+
+The baker and the target's baked material are kept in league, as in the Maya tools: switching an output on or off in the
+panel switches the flavor of the baked material using its texture.
+
+| Output | Flavor | Texture |
+| --- | --- | --- |
+| Normal map | `tsnmap` | `texture_nmap` |
+| Specular | `spec` | `texture_over` |
+| Environment | `add.env` | `texture_mask` |
+| Paint | `paint` | `texture_mask_1` |
+| Lightmap | `day` | `texture_lightmap` |
+
+Flavors are matched again after loading a setup and on **Save**, **Bake** and **Export & Bake**, in case the material was
+changed meanwhile. Other flavors (`shadow`, `night`, `instanced`, `skinned`) aren't driven by outputs, except that the
+lightmap output switches `night` to `day`, as only `day` uses the lightmap. If the game has no effect for the needed
+combination (e.g. paint with `skinned`), a warning is shown and the material is left as it is.
+
+The `baked` shader preset has all flavors of the game's `eut2.baked` effect (`base/effect/def/eut2/eut2_baked.sui`):
+`spec`, `add.env`, `tsnmap`, `paint`, `shadow`, `day` or `night`, and `instanced` or `skinned`:
+
+- **night** is the night variant of `day` and uses no lightmap.
+- **skinned** is for skinned (animated) models. It's still baked as usual.
+- **instanced** material reuses textures already baked for another model and isn't baked itself: it's not a baking
+  target and **Check** says so if the target uses only an instanced baked material. Its textures keep pointing to the
+  baked files and reload when they are baked again.
+
+In the **SCS Material** panel, a baked material has a **LOD Baker Setup** button opening the LOD Baker of its SCS Root;
+an instanced baked material shows a note instead.
 
 ### Baking setup on import
 
@@ -333,6 +363,11 @@ Hide states are remembered and restored after export, also when the export fails
 
 ## Materials and looks fixes
 
+- **Materials are merged on import**: after each imported PIM, duplicates of SCS materials (e.g. `glass.001` of existing
+  `glass`) are merged the same way as **Merge SCS Materials** with **All** objects and **Name & Effect & Attributes**, so
+  importing several models or the same model again doesn't pile up material copies. Materials whose looks differ aren't
+  merged. Imported materials are also created without Blender's `.NNN` suffix in their alias (models exported from
+  Blender can have aliases like `shadow_caster.003`), so they can be merged.
 - **PIT files from newer SCS Maya tools** (`PIT Exporter: 1.05`) are imported with proper materials. These store each
   material as an `AutoMat` section with embedded SII content (`xmat_auto_header` effect, `xmat_input_*` attributes and
   `xmat_sampler` textures) and their PIM holds only `Effect: "UNUSED"`. Previously all such materials lost their shader

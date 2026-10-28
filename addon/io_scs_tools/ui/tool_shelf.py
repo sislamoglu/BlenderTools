@@ -649,10 +649,16 @@ class SCS_TOOLS_PT_LODBaker(_ToolShelfBlDefs, Panel):
 
         # baking
         col = layout.column(align=True)
+        # baking alone needs both models already exported
+        models_exported = setup.source_root is not None and all(
+            os.path.isfile(_baker_utils.get_model_filepath(root)[:-len(".pmd")] + ".pim") for root in (setup.source_root, target_root)
+        )
         row = col.row(align=True)
         row.enabled = setup.source_root is not None
         row.operator("object.scs_tools_bake_setup_bake_only", text="Bake", icon='RENDER_STILL')
         row.operator("object.scs_tools_bake_setup_bake", text="Export & Bake", icon='EXPORT')
+        if setup.source_root is not None and not models_exported:
+            col.label(text="Export source & target before Bake.", icon='INFO')
         col.prop(context.scene.scs_props, "bake_on_export")
 
 

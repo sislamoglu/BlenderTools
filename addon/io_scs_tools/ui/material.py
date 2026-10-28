@@ -22,11 +22,13 @@ import bpy
 import os
 from bpy.types import Panel
 from . import shared as _shared
+from ..utils import baker as _baker_utils
 from ..utils import path as _path_utils
 from ..utils import object as _object_utils
 from ..utils import material as _material_utils
 from ..utils import get_scs_globals as _get_scs_globals
 from ..utils import get_scs_inventories as _get_scs_inventories
+from ..consts import Baker as _BAKER_consts
 from ..consts import Mesh as _MESH_consts
 from ..internals import looks as _looks
 from ..internals import shader_presets as _shader_presets
@@ -366,6 +368,16 @@ class SCS_TOOLS_PT_Material(_shared.HeaderIconPanel, _MaterialPanelBlDefs, Panel
 
             # FLAVORS PANEL
             SCS_TOOLS_PT_Material.draw_flavors(layout, mat)
+
+            # LOD BAKER SETUP OF BAKED MATERIAL
+            if _baker_utils.is_instanced_baked_material(mat):
+                layout.label(text="Instanced: reuses already baked textures, isn't baked.", icon='INFO')
+            elif mat.scs_props.mat_effect_name.startswith(_BAKER_consts.baked_effect_prefix):
+                row = layout.row()
+                row.enabled = _object_utils.get_scs_root(context.active_object) is not None
+                props = row.operator("wm.call_panel", text="LOD Baker Setup", icon='RENDER_STILL')
+                props.name = "SCS_TOOLS_PT_LODBaker"
+                props.keep_open = True
 
             # PARAMETERS PANEL
             SCS_TOOLS_PT_Material.draw_parameters(layout, mat, scs_inventories, _UI_SPLIT_PERC, is_imported_shader=is_imported_shader)

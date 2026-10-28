@@ -32,6 +32,7 @@ bl_info = {
 
 import bpy
 import os
+import re
 import traceback
 from time import time
 from bpy.props import CollectionProperty, StringProperty, PointerProperty, BoolProperty
@@ -77,6 +78,17 @@ class SCS_TOOLS_OT_Import(bpy.types.Operator, ImportHelper):
 
         return True
 
+    @staticmethod
+    def merge_duplicate_materials():
+        """Merges duplicates of SCS materials created by import (e.g. "glass.001" of already existing "glass"),
+        the same as "Merge SCS Materials" on all objects by name & effect & attributes.
+        Merging is run only if there are any duplicates, to avoid reporting that nothing could be merged.
+        """
+        # duplicates already merged before stay without users, so check only used ones
+        used_names = {mat.name for mat in bpy.data.materials if mat.users > 0}
+        if any(re.match(r".+\.\d{3}$", name) and name[:-4] in bpy.data.materials for name in used_names):
+            bpy.ops.material.scs_tools_merge_materials(scope_type='all', merge_type='name_effect_attributes')
+
     def execute(self, context):
 
         from .internals.containers.config import AsyncPathsInit
@@ -120,6 +132,8 @@ class SCS_TOOLS_OT_Import(bpy.types.Operator, ImportHelper):
                     _get_scs_globals().import_in_progress = True
                     result = _pix_import.load(context, filepath, name_suffix=ef_format_suffix)
                     _get_scs_globals().import_in_progress = False
+
+                    self.merge_duplicate_materials()
 
                 except Exception as e:
 

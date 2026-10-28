@@ -152,12 +152,26 @@ def get_root_meshes(root_obj):
 
 
 def is_baked_material(material):
-    """Tells if given material uses baked effect.
+    """Tells if given material uses baked effect, which gets textures from baking (instanced baked effect doesn't).
 
     :type material: bpy.types.Material | None
     :rtype: bool
     """
-    return material is not None and material.scs_props.mat_effect_name.startswith(_BAKER_consts.baked_effect_prefix)
+    return (material is not None and material.scs_props.mat_effect_name.startswith(_BAKER_consts.baked_effect_prefix) and
+            not is_instanced_baked_material(material))
+
+
+def is_instanced_baked_material(material):
+    """Tells if given material uses instanced baked effect, which reuses textures already baked for another model,
+    so it isn't baked itself.
+
+    :type material: bpy.types.Material | None
+    :rtype: bool
+    """
+    if material is None:
+        return False
+    effect = material.scs_props.mat_effect_name
+    return effect.startswith(_BAKER_consts.baked_effect_prefix) and (effect + ".").find(".instanced.") != -1
 
 
 def get_baked_materials(root_obj):
@@ -193,6 +207,78 @@ def get_look_names(root_obj):
     :rtype: list[str]
     """
     return [look.name for look in root_obj.scs_object_look_inventory]
+
+
+_OUTPUT_FLAVORS = {
+    "normal_map": "tsnmap",
+    "baked_specular": "spec",
+    "baked_environment": "add.env",
+    "baked_paint": "paint",
+    "baked_lightmap": "day",
+}
+"""Baking output texture types -> flavors of baked effect using them, as SCS Maya tools set them on baked material."""
+
+_flavors_sync_suspended = [False]
+
+
+def sync_material_flavors(target_root):
+    """Switches flavors of baked material of target SCS Root to match enabled baking outputs: flavor is enabled when
+    its texture is baked and disabled otherwise. Other flavors (e.g. shadow) are left as they are.
+
+    :param target_root: target SCS Root object
+    :type target_root: bpy.types.Object
+    :return: list of (type, message) tuples
+    :rtype: list[tuple[str, str]]
+    """
+    if _flavors_sync_suspended[0]:
+        return []
+
+    baked_materials = get_baked_materials(target_root)
+    if len(baked_materials) != 1:
+        return []
+
+    from io_scs_tools.internals import shader_presets as _shader_presets
+    from io_scs_tools.utils import material as _material_utils
+
+    material = next(iter(baked_materials))
+    preset = _shader_presets.get_preset(material.scs_props.active_shader_preset_name)
+    if preset is None or not material.scs_props.mat_effect_name.startswith(preset.effect):
+        return []
+
+    setup = target_root.scs_props.bake_setup
+    wanted_flavors = {flavor: setup.get_output(tex_type).enabled for tex_type, flavor in _OUTPUT_FLAVORS.items()}
+    flavors_part = material.scs_props.mat_effect_name[len(preset.effect):] + "."
+
+    # compose flavors in preset order, the same way as flavor switching from material panel
+    flavors_suffix = ""
+    for flavor in preset.flavors:
+        for variant in flavor.variants:
+            if variant.suffix in wanted_flavors:
+                is_enabled = wanted_flavors[variant.suffix]
+            else:
+                is_enabled = ("." + variant.suffix + ".") in flavors_part
+            if is_enabled:
+                flavors_suffix += "." + variant.suffix
+                break
+
+    if preset.effect + flavors_suffix == material.scs_props.mat_effect_name:
+        return []
+
+    if not _shader_presets.has_section(preset.name, flavors_suffix):
+        message = "Flavors of material %r couldn't be matched to baking outputs, %r isn't supported!" % \
+                  (material.name, preset.effect + flavors_suffix)
+        lprint("W %s", (message,))
+        return [('WARNING', message)]
+
+    material.scs_props.mat_effect_name = preset.effect + flavors_suffix
+    _material_utils.set_shader_data_to_material(material, _shader_presets.get_section(preset.name, flavors_suffix))
+
+    # sync shader on all SCS Roots using this material
+    for root in _object_utils.gather_scs_roots(bpy.data.objects):
+        _looks.update_look_from_material(root, material, True)
+
+    lprint("I Flavors of material %r set by baking outputs: %r", (material.name, material.scs_props.mat_effect_name))
+    return [('INFO', "Material %r set to %r by baking outputs." % (material.name, material.scs_props.mat_effect_name))]
 
 
 def get_part_mapping(target_root, source_root):
@@ -291,6 +377,10 @@ def get_check_messages(target_root, scene):
     if len(target_baked_materials) != 1:
         messages.append(('ERROR', "Target %r must use exactly one baked material (%s effect), it uses %s." %
                          (target_root.name, _BAKER_consts.baked_effect_prefix, len(target_baked_materials))))
+        if len(target_baked_materials) == 0 and any(is_instanced_baked_material(slot.material)
+                                                    for mesh_obj in get_root_meshes(target_root) for slot in mesh_obj.material_slots):
+            messages.append(('ERROR', "Target %r uses instanced baked material, which reuses textures baked for another model "
+                                      "and isn't baked itself, switch off its 'instanced' flavor to bake it." % target_root.name))
     else:
         baked_material = next(iter(target_baked_materials))
         for root in get_scs_roots(scene):
@@ -447,6 +537,10 @@ def save_setup(target_root):
         f.write(sii_text)
 
     lprint("I Baking setup saved: %r", (setup_filepath,))
+
+    # material could be changed in the meantime, so make sure its flavors match baking outputs
+    sync_material_flavors(target_root)
+
     return True, "Baking setup saved: %r" % setup_filepath
 
 
@@ -659,6 +753,7 @@ def setup_imported_root(root_obj, dirpath, model_name, scene):
 def load_setup(target_root, scene, setup_filepath=None):
     """Reads baking setup file of given target SCS Root into its baking setup properties.
     Reads setups written by SCS Maya tools, SCS Blender Tools and also setups rewritten by the baker.
+    Flavors of baked material are then matched to loaded baking outputs.
 
     :param target_root: target SCS Root object
     :type target_root: bpy.types.Object
@@ -669,6 +764,19 @@ def load_setup(target_root, scene, setup_filepath=None):
     :return: tuple of (success, message)
     :rtype: tuple[bool, str]
     """
+    # match flavors only once all outputs are loaded
+    _flavors_sync_suspended[0] = True
+    try:
+        result = _load_setup(target_root, scene, setup_filepath)
+    finally:
+        _flavors_sync_suspended[0] = False
+
+    sync_material_flavors(target_root)
+    return result
+
+
+def _load_setup(target_root, scene, setup_filepath):
+    """Reads baking setup file into baking setup properties of target SCS Root, see load_setup."""
     if setup_filepath is None:
         setup_filepath = get_setup_filepath(target_root)
     if not os.path.isfile(setup_filepath):

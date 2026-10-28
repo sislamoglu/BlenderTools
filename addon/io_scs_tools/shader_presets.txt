@@ -9,7 +9,7 @@ Header {
 Shader {
     PresetName: "baked"
     Effect: "eut2.baked"
-    Flavors: ( "SPECULAR" "ENVMAP" "NMAP_TS" "PAINT" "SHADOW" "DAY" )
+    Flavors: ( "SPECULAR" "ENVMAP" "NMAP_TS" "PAINT" "SHADOW" "DAY|NIGHT" "INSTANCED|SKINNED" )
     Flags: 0
     Attribute {
         Format: FLOAT2
@@ -4951,6 +4951,10 @@ Flavor {
     Name: "indenv"
 }
 Flavor {
+    Type: "INSTANCED"
+    Name: "instanced"
+}
+Flavor {
     Type: "INVERTOPAC"
     Name: "oinv"
 }
@@ -5040,6 +5044,10 @@ Flavor {
 Flavor {
     Type: "SHIFT"
     Name: "shift"
+}
+Flavor {
+    Type: "SKINNED"
+    Name: "skinned"
 }
 Flavor {
     Type: "SNOW"

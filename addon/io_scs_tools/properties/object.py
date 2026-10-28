@@ -274,10 +274,16 @@ class ObjectBakeOutput(bpy.types.PropertyGroup):
     Single baked texture output of LOD baking setup.
     """
 
+    def enabled_update(self, context):
+        # baked material flavors follow baked textures (e.g. normal map needs tsnmap flavor)
+        from io_scs_tools.utils import baker as _baker_utils
+        _baker_utils.sync_material_flavors(self.id_data)
+
     enabled: BoolProperty(
         name="Enabled",
-        description="Bake this texture type",
+        description="Bake this texture type, flavor of baked material using this texture is switched with it",
         default=False,
+        update=enabled_update,
     )
     size: EnumProperty(
         name="Size",
