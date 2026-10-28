@@ -287,6 +287,18 @@ class SCSExportHelper:
             done.add(setup_filepath)
 
             setup_name = os.path.basename(setup_filepath)
+
+            # baker needs both models exported, so export the ones from the scene which never were
+            for model_filepath in setups[setup_filepath]:
+                if os.path.isfile(model_filepath[:-len(".pmd")] + ".pim"):
+                    continue
+                model_root = _baker_utils.get_root_by_model_filepath(scene, model_filepath)
+                if model_root is None or not model_root.scs_props.scs_root_object_export_enabled:
+                    continue
+                lprint("I Exporting %r for baking of %r...", (model_root.name, setup_name))
+                if RootsExporter(self, (model_root,), bake_after_export=False).execute_export(bpy.context, True) == {'FINISHED'}:
+                    exported_models.add(model_filepath)
+
             lprint("I Baking %r...", (setup_name,))
 
             success, baker_messages = _baker_utils.run_baker(setup_filepath)

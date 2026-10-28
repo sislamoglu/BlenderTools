@@ -187,7 +187,8 @@ With **Bake on Export** on (per scene, on by default), every export also bakes:
    of all SCS Roots in the scene. Only setups whose target SCS Root is in the scene are used.
 2. The SCS baker is run for every baking setup whose **source or target** was exported. A setup is baked only after the
    setup that bakes its source, so LOD chains bake in order: exporting `truck` bakes `truck_lod1`, exports it again and
-   then bakes `truck_lod2` from it.
+   then bakes `truck_lod2` from it. If the source or target in the scene was never exported, it's exported first, as the
+   baker needs both models.
 3. Textures listed by the baker are assigned to the target's baked material, **per look**: `texture_base` (diffuse),
    `texture_over` (specular), `texture_mask` (environment), `texture_mask_1` (paint mask), `texture_nmap` (normal map)
    and `texture_lightmap`. A texture is skipped with a warning if the material doesn't have its flavor (`spec`,
@@ -197,6 +198,12 @@ With **Bake on Export** on (per scene, on by default), every export also bakes:
 4. The target is exported again with the baked textures.
 
 Baker messages and errors show in the export report. Exchange format (EF) export never bakes.
+
+Before the baker runs (on export and with **Bake**), the textures baked earlier by the setup for its target are deleted:
+the ones listed in the setup and any other `<target>_baked_*.tga` / `.tobj` in its output folder. So the baker recreates
+exactly the textures of the setup as it is now, and textures of outputs or options switched off don't stay behind.
+Textures of other models (e.g. `truck_lod10_baked_*` next to `truck_lod1`) and of setups kept after rename aren't touched.
+Files are deleted only inside the SCS Project Base Path.
 
 Vehicle (paintable) baked materials don't need a separate shader: they are the `baked` shader preset with the **paint**
 flavor (`eut2.baked.spec.add.env.paint`), which Maya's old `eut2.baked.vehicle` viewport shader maps to as well.

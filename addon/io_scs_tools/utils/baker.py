@@ -41,6 +41,10 @@ from io_scs_tools.utils import get_scs_globals as _get_scs_globals
 from io_scs_tools.utils.printout import lprint
 
 
+_GENERATED_TEXTURES_RE = re.compile(r'^\s*generated_textures(\[\d*\])?(_hash)?\s*:.*\n?', re.MULTILINE)
+"""Lines of baking result listing generated textures, in both array formats (with "[]" and with indices or count)."""
+
+
 def get_scs_roots(scene):
     """Gets all SCS Root objects from given scene.
 
@@ -581,7 +585,7 @@ def rename_setups(root_obj, old_name, scene):
             setup_text, _ = _replace_model_paths(setup_text, ("target_model_path", "cage_model_path"), old_name, new_name)
 
             # textures baked under old name belong to old baking setup
-            setup_text = re.sub(r'^\s*generated_textures(\[\d*\])?(_hash)?\s*:.*\n?', "", setup_text, flags=re.MULTILINE)
+            setup_text = _GENERATED_TEXTURES_RE.sub("", setup_text)
 
             with open(new_setup_filepath, mode="w", encoding="utf-8") as f:
                 f.write(setup_text)
@@ -917,6 +921,54 @@ def get_root_by_model_filepath(scene, model_filepath):
     return None
 
 
+def delete_baked_textures(setup_filepath, target_name):
+    """Deletes textures baked by given baking setup for its target: the ones listed in its baking result and any other
+    "<target>_baked_*.tga/tobj" in its output directory. List of generated textures is removed from baking setup too.
+    Files are deleted only inside SCS Project Base Path.
+
+    :param setup_filepath: baking setup file path
+    :type setup_filepath: str
+    :param target_name: target model file name without extension
+    :type target_name: str
+    :return: number of deleted files
+    :rtype: int
+    """
+    scs_project_path = _get_scs_globals().scs_project_path
+    setup_dirpath = os.path.dirname(setup_filepath)
+
+    texture_filepaths = set()
+    for texture_path in _read_generated_textures(setup_filepath):
+        texture_filepaths.add(os.path.normpath(os.path.join(setup_dirpath, texture_path)))
+
+    textures_dirpath = os.path.normpath(os.path.join(setup_dirpath, _get_output_directory(setup_filepath)))
+    prefix = os.path.normcase(target_name + "_baked_")
+    if os.path.isdir(textures_dirpath):
+        for filename in os.listdir(textures_dirpath):
+            if os.path.normcase(filename).startswith(prefix) and filename.lower().endswith((".tga", ".tobj")):
+                texture_filepaths.add(os.path.join(textures_dirpath, os.path.splitext(filename)[0]))
+
+    deleted_count = 0
+    for texture_filepath in sorted(texture_filepaths):
+        if not scs_project_path or not _path_utils.startswith(texture_filepath, scs_project_path):
+            continue
+        for ext in (".tga", ".tobj"):
+            if os.path.isfile(texture_filepath + ext):
+                os.remove(texture_filepath + ext)
+                deleted_count += 1
+                lprint("D Deleted previously baked texture: %r", (_path_utils.readable_norm(texture_filepath + ext),))
+
+    # deleted textures can't be listed in baking result anymore (baker writes the list again once it bakes)
+    with open(setup_filepath, encoding="utf-8", errors="replace") as f:
+        setup_text = f.read()
+    new_setup_text = _GENERATED_TEXTURES_RE.sub("", setup_text)
+    if new_setup_text != setup_text:
+        with open(setup_filepath, mode="w", encoding="utf-8") as f:
+            f.write(new_setup_text)
+
+    lprint("I Deleted %i previously baked texture file(s) of %r before baking.", (deleted_count, target_name))
+    return deleted_count
+
+
 def run_baker(setup_filepath):
     """Runs SCS baker for given baking setup, the same way as SCS Maya tools. Baker bakes textures beside baking setup
     (or beside bake sources directory) and writes generated textures into baking result of baking setup.
@@ -937,7 +989,10 @@ def run_baker(setup_filepath):
     for model_filepath in model_filepaths:
         if not os.path.isfile(model_filepath[:-len(".pmd")] + ".pim"):
             return False, [('ERROR', "Model %r of baking setup %r isn't exported." %
-                            (_path_utils.readable_norm(model_filepath), os.path.basename(setup_filepath)))]
+                            (os.path.splitext(os.path.basename(model_filepath))[0], os.path.basename(setup_filepath)))]
+
+    # textures are recreated by the setup as it is now, so ones it doesn't generate anymore don't stay behind
+    delete_baked_textures(setup_filepath, os.path.splitext(os.path.basename(model_filepaths[1]))[0])
 
     baker_filepath = get_baker_filepath()
     project_dirpath = os.path.dirname(os.path.dirname(os.path.dirname(baker_filepath)))
