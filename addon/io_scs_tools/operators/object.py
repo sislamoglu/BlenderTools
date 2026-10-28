@@ -2958,6 +2958,42 @@ class Baker:
             exporter = _RootsExporter(self, (source_root, target_root), bake_forced=True)
             return exporter.execute_export(context, True)
 
+    class SCS_TOOLS_OT_BakeSetupBakeOnly(_BakeSetupOperator, bpy.types.Operator):
+        bl_label = "Bake"
+        bl_idname = "object.scs_tools_bake_setup_bake_only"
+        bl_description = ("Save baking setup, run baker on already exported source and target and assign baked textures "
+                          "to target per look (nothing is exported)")
+        bl_options = {'REGISTER', 'UNDO'}
+
+        def execute(self, context):
+            target_root = _object_utils.get_scs_root(context.active_object)
+
+            success, message = _baker_utils.save_setup(target_root)
+            if not success:
+                self.report({'ERROR'}, message)
+                return {'CANCELLED'}
+
+            errors = [(msg_type, msg) for msg_type, msg in _baker_utils.get_check_messages(target_root, context.scene)
+                      if msg_type == 'ERROR']
+            if errors:
+                self.report_check_messages(errors)
+                self.report({'ERROR'}, "Baking setup of %r has %s error(s), baking aborted!" % (target_root.name, len(errors)))
+                return {'CANCELLED'}
+
+            setup_filepath = _baker_utils.get_setup_filepath(target_root)
+            success, messages = _baker_utils.run_baker(setup_filepath)
+            if success:
+                messages.extend(_baker_utils.assign_baked_textures(target_root, setup_filepath))
+
+            self.report_check_messages(messages)
+            if not success:
+                self.report({'ERROR'}, "Baking of %r failed!" % os.path.basename(setup_filepath))
+                return {'CANCELLED'}
+
+            self.report({'INFO'}, "Baked %r, textures assigned to %r (export it to write them into PIT)." %
+                        (os.path.basename(setup_filepath), target_root.name))
+            return {'FINISHED'}
+
 
 class Animation:
     """
@@ -3292,6 +3328,7 @@ classes = (
     Baker.SCS_TOOLS_OT_BakeSetupDelete,
     Baker.SCS_TOOLS_OT_BakeSetupCheck,
     Baker.SCS_TOOLS_OT_BakeSetupBake,
+    Baker.SCS_TOOLS_OT_BakeSetupBakeOnly,
 
     Collision.SCS_TOOLS_OT_SelectStaticCollisionObjects,
     Collision.SCS_TOOLS_OT_SwitchStaticCollisionObjects,

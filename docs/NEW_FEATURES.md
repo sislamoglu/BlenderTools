@@ -145,8 +145,23 @@ Buttons:
   texture height can't exceed 2048, source and target need the same looks and the target's parts must exist in the source.
   It also warns when source or target isn't exported yet.
 - **Delete** removes the `.bake` file after confirmation, so the root is no longer a baking target.
-- **Save, Export & Bake** saves the setup, stops if **Check** finds errors, then exports source and target and bakes
+- **Bake** saves the setup, stops if **Check** finds errors, runs the baker on the already exported source and target and
+  assigns the baked textures to the target per look. Nothing is exported, so export the target afterwards to write the
+  textures into its PIT.
+- **Export & Bake** saves the setup, stops if **Check** finds errors, then exports source and target and bakes
   (see below). It bakes even when **Bake on Export** is off.
+
+### Baking setup on import
+
+Importing a PIM also loads its baking setup:
+
+- The `.bake` file named after the imported model in the same folder is loaded into the LOD Baker panel. Its source is
+  matched by export path and otherwise by SCS Root name. If the source isn't in the scene yet, it is linked as soon as
+  it gets imported.
+- If the imported model is the source or target of any baking setup in its folder, its export path is set to that
+  folder, so the setup still points to it on **Save**, **Bake** and export.
+- As in the Maya tools, the PIM and PIT headers list the baking setups the model is used in as `Dependency` lines
+  (e.g. `Dependency: "./truck_lod1.bake"`). Import accepts them and export writes them, for both the source and the target.
 
 ### Baking on export
 
@@ -295,6 +310,12 @@ Hide states are remembered and restored after export, also when the export fails
 
 ## Materials and looks fixes
 
+- **PIT files from newer SCS Maya tools** (`PIT Exporter: 1.05`) are imported with proper materials. These store each
+  material as an `AutoMat` section with embedded SII content (`xmat_auto_header` effect, `xmat_input_*` attributes and
+  `xmat_sampler` textures) and their PIM holds only `Effect: "UNUSED"`. Previously all such materials lost their shader
+  (including baked ones); now they are converted on import, material attribute names are mapped back to effect
+  attribute tags (e.g. `additional_ambient` to `add_ambient`, `shadowmap_bias` to `shadow_bias`, split `aux[n]` values
+  joined), so they get their matching shader preset.
 - Fixed material values being reverted after export on SCS Game Objects with several looks. The PIT, PIT EF and AutoMat
   exporters save the exact state of the materials before applying looks for export, and restore it afterwards.
 - Fixed EF export leaving materials in the state of the last look.

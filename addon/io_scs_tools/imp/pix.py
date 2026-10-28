@@ -30,6 +30,7 @@ from io_scs_tools.imp import pis as _pis
 from io_scs_tools.imp import pit as _pit
 from io_scs_tools.imp.transition_structs.terrain_points import TerrainPntsTrans
 from io_scs_tools.internals import inventory as _inventory
+from io_scs_tools.utils import baker as _baker_utils
 from io_scs_tools.utils import get_scs_globals as _get_scs_globals
 from io_scs_tools.utils import material as _material_utils
 from io_scs_tools.utils import name as _name_utils
@@ -331,6 +332,8 @@ def _create_scs_root_object(name, loaded_variants, loaded_looks, mats_info, obje
                 else:  # import shader directly from material and mark it as imported
 
                     mat.scs_props.active_shader_preset_name = "<imported>"
+                    # PIM from newer SCS Maya tools doesn't hold material effect ("UNUSED"), it's only in PIT
+                    mat.scs_props.mat_effect_name = material_effect
                     _material_utils.set_shader_data_to_material(mat, material_section, is_import=True)
 
                     lprint("W Using imported shader on material %r, effect: %r.", (mat.name, mat.scs_props.mat_effect_name))
@@ -471,6 +474,10 @@ def load(context, filepath, name_suffix="", suppress_reports=False):
                 lprint("W Can not preserve import path for export on import SCS Root %r, "
                        "as import was done from outside of current SCS Project Base Path!",
                        (scs_root_object.name,))
+
+        # load baking setup of imported model and link baking setups waiting for this model as source
+        if name_suffix == "":
+            _baker_utils.setup_imported_root(scs_root_object, path, filename, context.scene)
     else:
         lprint("W Model file: %r is empty, nothing could be imported!", (filename,))
 

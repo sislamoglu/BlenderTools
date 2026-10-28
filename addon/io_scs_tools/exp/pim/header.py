@@ -27,8 +27,9 @@ class Header:
     __format_version = 0
     __source = "Blender"
     __name = ""
+    __dependencies = ()
 
-    def __init__(self, format_type, format_version, name):
+    def __init__(self, format_type, format_version, name, dependencies=()):
         """Constructs header of PIM model.
         :param format_type: type of PIM file format (used only for Data Exchange Format)
         :type format_type: str
@@ -36,11 +37,14 @@ class Header:
         :type format_version: int
         :param name: name of the model
         :type name: str
+        :param dependencies: relative paths of baking setups using this model
+        :type dependencies: collections.Iterable[str]
         """
         self.__format_type = format_type
         self.__format_version = format_version
         self.__source = get_combined_ver_str()
         self.__name = name
+        self.__dependencies = tuple(dependencies)
 
     def get_as_section(self):
         """Gets header information represented with SectionData structure class.
@@ -55,5 +59,7 @@ class Header:
         section.props.append(("Source", self.__source))
         section.props.append(("Type", "Model"))
         section.props.append(("Name", self.__name))
+        for dependency in self.__dependencies:
+            section.props.append(("Dependency", dependency))
 
         return section

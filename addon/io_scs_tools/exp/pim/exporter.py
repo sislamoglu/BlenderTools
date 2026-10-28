@@ -35,6 +35,7 @@ from io_scs_tools.exp.pim.bones import Bones
 from io_scs_tools.exp.pim.piece_skin import PieceSkin
 from io_scs_tools.exp.pim.piece_skin import PieceSkinStream
 from io_scs_tools.internals.containers import pix as _pix_container
+from io_scs_tools.utils import baker as _baker_utils
 from io_scs_tools.utils import mesh as _mesh_utils
 from io_scs_tools.utils import name as _name_utils
 from io_scs_tools.utils import object as _object_utils
@@ -88,7 +89,8 @@ def execute(dirpath, name_suffix, root_object, armature_object, skeleton_filepat
 
     is_skin_used = (armature_object and root_object.scs_props.scs_root_animated == "anim")
 
-    pim_header = Header("", format_version, root_object.name)
+    dependencies = _baker_utils.get_setup_dependencies(dirpath, root_object.name) if name_suffix == "" else ()
+    pim_header = Header("", format_version, root_object.name, dependencies)
     pim_global = Globall(used_parts.count(), skeleton_filepath)
 
     pim_materials = collections.OrderedDict()  # dict of Material class instances representing used materials

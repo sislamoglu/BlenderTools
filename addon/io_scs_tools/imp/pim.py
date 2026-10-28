@@ -56,6 +56,8 @@ def get_header(pim_container):
                     source_filename = prop[1]
                 elif prop[0] == "Author":
                     author = prop[1]
+                elif prop[0] == "Dependency":
+                    pass  # baking setups, loaded on import by their names
                 else:
                     lprint('\nW Unknown property in "Header" data: "%s"!', prop[0])
     return format_version, source, f_type, f_name, source_filename, author

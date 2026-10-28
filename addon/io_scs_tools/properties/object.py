@@ -311,6 +311,11 @@ class ObjectBakeSetup(bpy.types.PropertyGroup):
         type=bpy.types.Object,
         poll=source_root_poll,
     )
+    source_model_path: StringProperty(
+        description="Source model path from last loaded baking setup file, used to find source SCS Root imported later",
+        default="",
+        options={'HIDDEN'},
+    )
     near_plane: FloatProperty(
         name="Near Plane",
         description="Cage distance below target surface from which source surface is captured",

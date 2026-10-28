@@ -27,6 +27,7 @@ from io_scs_tools.internals import looks as _looks
 from io_scs_tools.internals import shader_presets as _shader_presets
 from io_scs_tools.internals.structure import SectionData as _SectionData
 from io_scs_tools.internals.containers import pix as _pix_container
+from io_scs_tools.utils import baker as _baker_utils
 from io_scs_tools.utils import path as _path_utils
 from io_scs_tools.utils import get_scs_globals as _get_scs_globals
 from io_scs_tools.utils.info import get_combined_ver_str
@@ -651,6 +652,9 @@ def export(root_object, filepath, name_suffix, used_parts, used_materials):
 
     # DATA CREATION
     header_section = fill_header_section(1, file_name, scs_globals.export_write_signature)
+    if name_suffix == "":
+        for setup_rel_path in _baker_utils.get_setup_dependencies(os.path.dirname(filepath), file_name):
+            header_section.props.append(("Dependency", setup_rel_path))
     look_section = fill_look_sections(look_list)
     # part_sections = fill_part_section(part_list)
     variant_section = fill_variant_sections(variant_list)

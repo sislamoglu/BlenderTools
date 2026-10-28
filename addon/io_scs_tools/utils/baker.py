@@ -445,7 +445,116 @@ def save_setup(target_root):
     return True, "Baking setup saved: %r" % setup_filepath
 
 
-def load_setup(target_root, scene):
+def find_source_root(target_root, scene, source_model_path, setup_filepath):
+    """Finds source SCS Root for given source model path from baking setup: SCS Root exported to that path,
+    otherwise SCS Root named after the model (as imported SCS Roots don't have to be exported to their import path).
+
+    :param target_root: target SCS Root object
+    :type target_root: bpy.types.Object
+    :param scene: scene with SCS Roots
+    :type scene: bpy.types.Scene
+    :param source_model_path: source model path as written in baking setup, relative to it (e.g. "./truck.pmd")
+    :type source_model_path: str
+    :param setup_filepath: baking setup file path
+    :type setup_filepath: str
+    :rtype: bpy.types.Object | None
+    """
+    if not source_model_path:
+        return None
+
+    roots = [root for root in get_scs_roots(scene) if root != target_root]
+
+    model_filepath = _path_utils.full_norm(os.path.join(os.path.dirname(setup_filepath), source_model_path))
+    for root in roots:
+        if _path_utils.full_norm(get_model_filepath(root)) == model_filepath:
+            return root
+
+    source_name = os.path.splitext(os.path.basename(source_model_path))[0]
+    for root in roots:
+        if root.name == source_name:
+            return root
+
+    return None
+
+
+def link_unresolved_sources(scene):
+    """Sets source SCS Root of baking setups loaded with source not present in the scene, once the source appears
+    (e.g. target is imported before its source).
+
+    :param scene: scene with SCS Roots
+    :type scene: bpy.types.Scene
+    """
+    for root in get_scs_roots(scene):
+        setup = root.scs_props.bake_setup
+        if setup.source_root is not None or not setup.source_model_path:
+            continue
+
+        source_root = find_source_root(root, scene, setup.source_model_path, get_setup_filepath(root))
+        if source_root is not None:
+            setup.source_root = source_root
+            lprint("I Source %r of baking setup set on %r.", (source_root.name, root.name))
+
+
+def get_setup_dependencies(dirpath, model_name):
+    """Gets baking setups in given directory using given model as source or target, as written by SCS Maya tools into
+    "Dependency" of PIT header.
+
+    :param dirpath: model directory
+    :type dirpath: str
+    :param model_name: model file name without extension
+    :type model_name: str
+    :return: baking setup paths relative to model directory, e.g. ["./truck_lod1.bake"]
+    :rtype: list[str]
+    """
+    if not os.path.isdir(dirpath):
+        return []
+
+    model_filepath = _path_utils.full_norm(os.path.join(dirpath, model_name + ".pmd"))
+
+    dependencies = []
+    for filename in sorted(os.listdir(dirpath)):
+        if filename.endswith(_BAKER_consts.setup_ext):
+            model_filepaths = read_setup_model_filepaths(os.path.join(dirpath, filename))
+            if model_filepaths and model_filepath in model_filepaths:
+                dependencies.append("./" + filename)
+    return dependencies
+
+
+def setup_imported_root(root_obj, dirpath, model_name, scene):
+    """Prepares baking for SCS Root imported from given directory:
+    1. if imported model is source or target of any baking setup in its directory, its export path is set to that directory,
+       so baking setups keep pointing to it on save, bake and export,
+    2. baking setup named after imported model is loaded into its baking setup properties,
+    3. baking setups of other SCS Roots waiting for this model as source get it linked.
+
+    :param root_obj: imported SCS Root object
+    :type root_obj: bpy.types.Object
+    :param dirpath: directory from which model was imported
+    :type dirpath: str
+    :param model_name: imported model file name without extension
+    :type model_name: str
+    :param scene: scene with SCS Roots
+    :type scene: bpy.types.Scene
+    """
+    used_in_setup = len(get_setup_dependencies(dirpath, model_name)) > 0
+    if used_in_setup and _path_utils.full_norm(get_export_dirpath(root_obj)) != _path_utils.full_norm(dirpath):
+        scs_project_path = _get_scs_globals().scs_project_path
+        if scs_project_path and _path_utils.startswith(dirpath, scs_project_path):
+            root_obj.scs_props.scs_root_object_export_filepath = _path_utils.relative_path(scs_project_path, dirpath)
+            root_obj.scs_props.scs_root_object_allow_custom_path = True
+            lprint("I Export path of %r set to its import path, as it's used in baking setup.", (root_obj.name,))
+        else:
+            lprint("W %r is used in baking setup, but its import path is outside of SCS Project Base Path, "
+                   "so its export path couldn't be set to it!", (root_obj.name,))
+
+    setup_filepath = os.path.join(dirpath, model_name + _BAKER_consts.setup_ext)
+    if os.path.isfile(setup_filepath):
+        load_setup(root_obj, scene, setup_filepath=setup_filepath)
+
+    link_unresolved_sources(scene)
+
+
+def load_setup(target_root, scene, setup_filepath=None):
     """Reads baking setup file of given target SCS Root into its baking setup properties.
     Reads setups written by SCS Maya tools, SCS Blender Tools and also setups rewritten by the baker.
 
@@ -453,10 +562,13 @@ def load_setup(target_root, scene):
     :type target_root: bpy.types.Object
     :param scene: scene with SCS Roots, used to find source SCS Root
     :type scene: bpy.types.Scene
+    :param setup_filepath: baking setup file to read; if not given the one at target's export path is read
+    :type setup_filepath: str | None
     :return: tuple of (success, message)
     :rtype: tuple[bool, str]
     """
-    setup_filepath = get_setup_filepath(target_root)
+    if setup_filepath is None:
+        setup_filepath = get_setup_filepath(target_root)
     if not os.path.isfile(setup_filepath):
         return False, "Baking setup %r doesn't exist!" % setup_filepath
 
@@ -484,18 +596,13 @@ def load_setup(target_root, scene):
             if "far_plane_distance" in unit.props:
                 setup.far_plane = float(unit.props["far_plane_distance"])
 
-            # find source SCS Root by its exported model path
+            # find source SCS Root, if it's not in the scene yet, it's set once it appears (see link_unresolved_sources)
             source_model_path = unit.props.get("source_model_path", "")
-            source_model_path = os.path.join(os.path.dirname(setup_filepath), source_model_path)
-            source_model_path = _path_utils.full_norm(source_model_path)
-            setup.source_root = None
-            for root in get_scs_roots(scene):
-                if root != target_root and _path_utils.full_norm(get_model_filepath(root)) == source_model_path:
-                    setup.source_root = root
-                    break
-            else:
-                message = "Baking setup loaded, but source model %r doesn't match export path of any SCS Root!" % \
-                          unit.props.get("source_model_path", "")
+            setup.source_model_path = source_model_path
+            setup.source_root = find_source_root(target_root, scene, source_model_path, setup_filepath)
+            if setup.source_root is None:
+                message = "Baking setup loaded, but source model %r doesn't match export path or name of any SCS Root!" % \
+                          source_model_path
 
         elif unit.type == "baked_texture_set":
 

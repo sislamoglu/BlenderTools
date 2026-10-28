@@ -251,6 +251,35 @@ def _get_data(file, line):
     return data_index, data
 
 
+def _read_multiline_string(file, first_value):
+    """Reads multi-line string property value enclosed in triple quotes, e.g. embedded SII content of "AutoMat" in PIT files
+    written by newer SCS Maya tools. Lines are read raw, as they can contain section brackets.
+
+    :param file: file being read, positioned on the line after the opening line
+    :param first_value: property value on the opening line, starting with triple quotes
+    :type first_value: str
+    :return: string without enclosing triple quotes
+    :rtype: str
+    """
+    value = first_value[3:]
+    if value.endswith('"""'):
+        return value[:-3]
+
+    lines = [value]
+    while True:
+        line = file.readline()
+        if not line:
+            break
+
+        line = line.rstrip("\r\n")
+        if line.strip().endswith('"""'):
+            lines.append(line.rstrip()[:-3])
+            break
+        lines.append(line)
+
+    return "\n".join(lines)
+
+
 def _read_section(file, section_ids):
     """This function reads the nested sections. It recursively
     calls itself to read all levels of data hierarchy."""
@@ -267,7 +296,11 @@ def _read_section(file, section_ids):
         # print('%s  =-> "%s"' % (type, line))
         if data_type == 'Prop':
             # print(' -++- line: %s' % line)
-            prop = _get_prop(line)
+            prop_split = _PROP_REGEX.split(line, 1)
+            if len(prop_split) == 2 and prop_split[1].strip().startswith('"""'):
+                prop = [prop_split[0].strip(), _read_multiline_string(file, prop_split[1].strip())]
+            else:
+                prop = _get_prop(line)
             # print('prop: %s' % prop)
             if prop is not None:
                 props.append(prop)

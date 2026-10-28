@@ -23,6 +23,7 @@ import os
 import shutil
 from . import tobj as _tobj
 from ..consts import Variant as _VARIANT_consts
+from ..utils import baker as _baker_utils
 from ..utils import path as _path_utils
 from ..utils import get_scs_globals as _get_scs_globals
 from ..utils.info import get_combined_ver_str
@@ -768,6 +769,9 @@ def export(root_object, filepath, name_suffix, used_parts, used_materials):
 
     # DATA CREATION
     header_section = fill_header_section(1, file_name, scs_globals.export_write_signature)
+    if name_suffix == "":
+        for setup_rel_path in _baker_utils.get_setup_dependencies(os.path.dirname(filepath), file_name):
+            header_section.props.append(("Dependency", setup_rel_path))
     look_section = fill_look_sections(look_list)
     # part_sections = fill_part_section(part_list)
     variant_section = fill_variant_sections(variant_list)

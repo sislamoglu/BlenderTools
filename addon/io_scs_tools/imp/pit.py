@@ -21,6 +21,20 @@
 from ..utils import name as _name_utils
 from ..utils.printout import lprint
 from ..internals.containers import pix as _pix_container
+from collections import OrderedDict
+from ..internals.containers.parsers import sii as _sii_parser
+from ..internals.containers.parsers.mat_convert import AttributeConverter
+from ..internals.structure import SectionData as _SectionData
+
+_XMAT_INPUT_FORMATS = {
+    "xmat_input_f": "FLOAT",
+    "xmat_input_f2": "FLOAT2",
+    "xmat_input_f3": "FLOAT3",
+    "xmat_input_f4": "FLOAT4",
+    "xmat_input_int": "INT",
+    "xmat_input_str": "STRING",
+}
+"""Unit types of material inputs in "AutoMat" content -> attribute format of "Material" section."""
 
 
 def _get_header(pit_container):
@@ -44,6 +58,8 @@ def _get_header(pit_container):
                     source_filename = prop[1]
                 elif prop[0] == "Author":
                     author = prop[1]
+                elif prop[0] == "Dependency":
+                    pass  # baking setups, loaded on import by their names
                 else:
                     lprint('\nW Unknown property in "Header" data: "%s"!', prop[0])
     return format_version, source, f_type, f_name, source_filename, author
@@ -71,6 +87,88 @@ def _get_global(pit_container):
     return look_count, variant_count, part_count, material_count
 
 
+def _automat_to_material_section(automat_section):
+    """Converts "AutoMat" section of PIT files written by newer SCS Maya tools into equivalent "Material" section.
+    AutoMat holds material as embedded SII content: effect in "xmat_auto_header", attributes in "xmat_input_*"
+    and textures in "xmat_sampler" units.
+
+    :param automat_section: AutoMat section
+    :type automat_section: io_scs_tools.internals.structure.SectionData
+    :return: Material section or None if AutoMat content can't be read
+    :rtype: io_scs_tools.internals.structure.SectionData | None
+    """
+    alias = automat_section.get_prop_value("Alias")
+    content = automat_section.get_prop_value("Content")
+    units = _sii_parser.parse_string(content) if content else None
+    if not units:
+        lprint("E Content of AutoMat %r can't be read, material will be skipped!", (alias,))
+        return None
+
+    effect = None
+    attributes = OrderedDict()  # attribute tag -> (format, values)
+    texture_sections = []
+    converter = AttributeConverter()
+    for unit in units:
+        if unit.type == "xmat_auto_header":
+            effect = unit.props.get("effect")
+
+        elif unit.type in _XMAT_INPUT_FORMATS:
+            attr_format = _XMAT_INPUT_FORMATS[unit.type]
+            value = unit.props.get("value", "")
+            values = value if isinstance(value, list) else [value]
+
+            if attr_format == "STRING":
+                attributes[unit.props.get("name")] = (attr_format, tuple(values))
+                continue
+
+            values = tuple(int(float(val)) if attr_format == "INT" else float(val) for val in values)
+
+            # material attribute names differ from effect attribute tags used in Material sections, some of them
+            # are also only part of effect attribute (e.g. aux[5]), which converter puts together
+            converted = converter.effect_to_material(unit.props.get("name"), values if len(values) > 1 else values[0])
+            for tag, tag_value in (converted if isinstance(converted, list) else [converted]):
+                tag_values = tag_value if isinstance(tag_value, tuple) else (tag_value,)
+                if attr_format == "INT" and all(isinstance(val, int) for val in tag_values):
+                    tag_format = "INT"
+                else:
+                    tag_format = "FLOAT" if len(tag_values) == 1 else "FLOAT%i" % len(tag_values)
+                attributes[tag] = (tag_format, tag_values)
+
+        elif unit.type == "xmat_sampler":
+            # texture paths in Material sections are written without extension
+            texture_path = unit.props.get("value", "")
+            if texture_path.endswith(".tobj"):
+                texture_path = texture_path[:-len(".tobj")]
+
+            tex_section = _SectionData("Texture")
+            tex_section.props = [["Tag", "texture[%i]:%s" % (len(texture_sections), unit.props.get("name"))], ["Value", texture_path]]
+            texture_sections.append(tex_section)
+
+        else:
+            lprint("W Unsupported unit %r in AutoMat %r, ignoring it!", (unit.type, alias))
+
+    if effect is None:
+        lprint("E AutoMat %r doesn't define effect, material will be skipped!", (alias,))
+        return None
+
+    attribute_sections = []
+    for tag, (attr_format, values) in attributes.items():
+        attr_section = _SectionData("Attribute")
+        attr_section.props = [["Format", attr_format], ["Tag", tag], ["Value", values]]
+        attribute_sections.append(attr_section)
+
+    material_section = _SectionData("Material")
+    material_section.props = [
+        ["Alias", alias],
+        ["Effect", effect],
+        ["Flags", 0],
+        ["AttributeCount", len(attribute_sections)],
+        ["TextureCount", len(texture_sections)],
+    ]
+    material_section.sections = attribute_sections + texture_sections
+    return material_section
+
+
 def _get_look(section):
     """Receives a Look section and returns its properties in its own variables.
     For any item that fails to be found, it returns None."""
@@ -84,6 +182,11 @@ def _get_look(section):
             lprint('\nW Unknown property in "Look" data: "%s"!', prop[0])
     look_mat_settings = {}
     for sec in section.sections:
+        if sec.type == "AutoMat":
+            sec = _automat_to_material_section(sec)
+            if sec is None:
+                continue
+
         if sec.type == "Material":
             mat_alias = mat_effect = mat_flags = attribute_count = texture_count = None
             attributes = {}
