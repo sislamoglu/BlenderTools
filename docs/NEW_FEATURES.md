@@ -189,7 +189,8 @@ Importing a PIM also loads its baking setup:
   matched by export path and otherwise by SCS Root name. If the source isn't in the scene yet, it is linked as soon as
   it gets imported.
 - If the imported model is the source or target of any baking setup in its folder, its export path is set to that
-  folder, so the setup still points to it on **Save**, **Bake** and export.
+  folder, so the setup still points to it on **Save**, **Bake** and export. The PIM import option **Preserve Path for
+  Export**, which does this for every imported model, is now on by default (an existing `config.txt` keeps its saved value).
 - As in the Maya tools, the PIM and PIT headers list the baking setups the model is used in as `Dependency` lines
   (e.g. `Dependency: "./truck_lod1.bake"`). Import accepts them and export writes them, for both the source and the target.
 

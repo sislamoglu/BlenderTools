@@ -1124,7 +1124,7 @@ class SCSGlobals(bpy.types.PropertyGroup):
     import_preserve_path_for_export: BoolProperty(
         name="Preserve Path for Export",
         description="Automatically use and set custom export path on SCS Root to the same path that it was imported from.",
-        default=False,
+        default=True,
         update=import_preserve_path_for_export_update,
     )
     import_pim_file: BoolProperty(
