@@ -19,9 +19,12 @@
 # Copyright (C) 2019-2021: SCS Software
 
 import bpy
+import os
 from mathutils import Matrix
 from ... import exp as _export
+from ...utils import baker as _baker_utils
 from ...utils import object as _object_utils
+from ...utils import path as _path_utils
 from ...utils import get_scs_globals as _get_scs_globals
 from ...utils.printout import lprint
 
@@ -75,6 +78,12 @@ class SCSExportHelper:
         """:type dict[bpy.types.Object, tuple]"""
         self.realized_instances = []
         """:type list[bpy.types.Object]: Temporary objects created from instances of export objects, removed once export is done."""
+        self.bake_after_export = True
+        """:type bool: Run baker for baking setups of exported SCS Roots once export is finished."""
+        self.bake_forced = False
+        """:type bool: Run baker after export even if baking on export is switched off in scene."""
+        self.bake_pending = None
+        """:type list[tuple[bpy.types.Object, str]]: Exported SCS Roots with their export directories waiting for baking."""
 
     def get_objects_for_export(self):
         """Get objects for export, list filtered and extended depending on export scope.
@@ -224,6 +233,87 @@ class SCSExportHelper:
         # switching to export scene and back resets outliner scroll, so scroll back to active object,
         # deferred via timer so outliners get to rebuild their trees for recovered scene first
         bpy.app.timers.register(_outliners_show_active, first_interval=0.1)
+
+        if self.bake_pending:
+            exported_roots = self.bake_pending
+            self.bake_pending = None
+            if self.bake_forced or bpy.context.scene.scs_props.bake_on_export:
+                self.bake_exported(exported_roots)
+
+    def bake_exported(self, exported_roots):
+        """Runs baker for baking setups whose source or target was exported, assigns baked textures to target per look
+        and exports target again. Targets exported again can be sources of further baking setups (LOD chains),
+        so baking continues until no baking setup depends on anything exported. Baking setup is baked after the
+        baking setup baking its source, so chains are baked in proper order.
+
+        :param exported_roots: exported SCS Roots with their export directories
+        :type exported_roots: list[tuple[bpy.types.Object, str]]
+        """
+        scene = bpy.context.scene
+
+        exported_models = set()
+        for root_obj, dirpath in exported_roots:
+            exported_models.add(_path_utils.full_norm(os.path.join(dirpath, root_obj.name + ".pmd")))
+
+        setups = {}
+        for setup_filepath in _baker_utils.find_setup_filepaths({dirpath for _, dirpath in exported_roots}, scene):
+            model_filepaths = _baker_utils.read_setup_model_filepaths(setup_filepath)
+            if model_filepaths:
+                setups[setup_filepath] = model_filepaths
+
+        messages = []
+        baked = []
+        done = set()
+        while True:
+            pending = [path for path, (source, target) in setups.items()
+                       if path not in done and (source in exported_models or target in exported_models)]
+            if not pending:
+                break
+
+            # bake setup only after setups baking its source (fallback to any in case of cyclic setups)
+            pending_targets = {setups[path][1] for path in pending}
+            ready = [path for path in pending if setups[path][0] not in pending_targets] or pending
+            setup_filepath = ready[0]
+            done.add(setup_filepath)
+
+            setup_name = os.path.basename(setup_filepath)
+            lprint("I Baking %r...", (setup_name,))
+
+            success, baker_messages = _baker_utils.run_baker(setup_filepath)
+            messages.extend(baker_messages)
+            if not success:
+                messages.append(('ERROR', "Baking of %r failed." % setup_name))
+                continue
+
+            target_model = setups[setup_filepath][1]
+            target_root = _baker_utils.get_root_by_model_filepath(scene, target_model)
+            if target_root is None:
+                messages.append(('WARNING', "Textures of %r were baked, but its target isn't in the scene, so they weren't assigned." %
+                                 setup_name))
+                baked.append(setup_name)
+                continue
+
+            messages.extend(_baker_utils.assign_baked_textures(target_root, setup_filepath))
+
+            if not target_root.scs_props.scs_root_object_export_enabled:
+                messages.append(('WARNING', "Target %r is excluded from export, it wasn't exported with baked textures." %
+                                 target_root.name))
+            elif RootsExporter(self, (target_root,), bake_after_export=False).execute_export(bpy.context, True) == {'FINISHED'}:
+                exported_models.add(target_model)
+            else:
+                messages.append(('ERROR', "Target %r couldn't be exported after baking." % target_root.name))
+
+            baked.append(setup_name)
+
+        if not done:
+            return
+
+        for msg_type, msg in messages:
+            lprint(("E %s" if msg_type == 'ERROR' else "W %s"), (msg,))
+
+        summary = "Baked %i of %i baking setup(s): %s" % (len(baked), len(done), ", ".join(baked) if baked else "none")
+        if not lprint("I " + summary, report_errors=1, report_warnings=1):
+            self.report({'INFO'}, summary)
 
     def realize_instances(self, objs_to_export):
         """Creates temporary objects for all the instances (collection, vertices/faces, particles or geometry nodes instances)
@@ -390,7 +480,13 @@ class SCSExportHelper:
             # export instances as part of the game objects they are instanced in
             init_obj_list = self.realize_instances(self.get_objects_for_export())
 
-            result = _export.batch_export(self, init_obj_list, name_suffix=ef_name_suffix, menu_filepath=menu_filepath)
+            exported_roots = []
+            result = _export.batch_export(self, init_obj_list, name_suffix=ef_name_suffix, menu_filepath=menu_filepath,
+                                          exported_roots=exported_roots)
+
+            # baking is run once export scene is finished, as it exports baking targets again
+            if self.bake_after_export and ef_name_suffix == "" and exported_roots:
+                self.bake_pending = exported_roots
         except Exception as e:
 
             result = {"CANCELLED"}
@@ -412,3 +508,24 @@ class SCSExportHelper:
             self.finish()
 
         return result
+
+
+class RootsExporter(SCSExportHelper):
+    """Exporter of given SCS Roots (together with their children) forwarding reports to given operator."""
+
+    def __init__(self, operator, root_objs, bake_after_export=True, bake_forced=False):
+        SCSExportHelper.__init__(self)
+        self.operator = operator
+        self.bake_after_export = bake_after_export
+        self.bake_forced = bake_forced
+
+        # export only objects of given roots, nested SCS Roots are exported on their own
+        self.cached_objects = []
+        for root_obj in root_objs:
+            self.cached_objects.append(root_obj)
+            for child_obj in _object_utils.get_children(root_obj):
+                if child_obj.users_scene and _object_utils.get_scs_root(child_obj) == root_obj:
+                    self.cached_objects.append(child_obj)
+
+    def report(self, type, message):
+        self.operator.report(type, message)

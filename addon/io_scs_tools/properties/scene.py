@@ -19,7 +19,7 @@
 # Copyright (C) 2013-2019: SCS Software
 
 import bpy
-from bpy.props import StringProperty
+from bpy.props import BoolProperty, StringProperty
 
 
 class SceneSCSProps(bpy.types.PropertyGroup):
@@ -35,6 +35,13 @@ class SceneSCSProps(bpy.types.PropertyGroup):
         default="",
         # subtype="FILE_PATH",
         subtype='NONE',
+    )
+
+    bake_on_export: BoolProperty(
+        name="Bake on Export",
+        description="After export, run baker for baking setups ('*.bake') whose source or target was exported, "
+                    "assign baked textures to the target per look and export the target again",
+        default=True,
     )
 
 

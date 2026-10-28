@@ -32,7 +32,7 @@ from io_scs_tools.utils import get_scs_globals as _get_scs_globals
 from io_scs_tools.utils.printout import lprint
 
 
-def batch_export(operator_instance, init_obj_list, name_suffix="", menu_filepath=None):
+def batch_export(operator_instance, init_obj_list, name_suffix="", menu_filepath=None, exported_roots=None):
     """This function calls other sorting functions and depending on the resulting output
     dictionary it exports all available 'SCS Game Objects' into specified locations.
 
@@ -44,6 +44,8 @@ def batch_export(operator_instance, init_obj_list, name_suffix="", menu_filepath
     :type name_suffix: str
     :param menu_filepath: filepath used from menu export
     :type menu_filepath: str
+    :param exported_roots: optional list to which (SCS Root object, export directory) of each exported game object is appended
+    :type exported_roots: list[tuple[bpy.types.Object, str]] | None
     """
 
     lprint("", report_errors=-1, report_warnings=-1)  # Clear the 'error_messages' and 'warning_messages'
@@ -96,6 +98,8 @@ def batch_export(operator_instance, init_obj_list, name_suffix="", menu_filepath
 
                 if export_success:
                     scs_game_objects_exported.append("> \"" + root_object.name + "\" exported to: '" + filepath + "'")
+                    if exported_roots is not None:
+                        exported_roots.append((root_object, filepath))
                 else:
                     scs_game_objects_rejected.append("> \"" + root_object.name + "\"")
 

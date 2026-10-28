@@ -647,6 +647,13 @@ class SCS_TOOLS_PT_LODBaker(_ToolShelfBlDefs, Panel):
         sub_row.enabled = setup_exists
         sub_row.operator("object.scs_tools_bake_setup_delete", text="Delete", icon='TRASH')
 
+        # baking
+        col = layout.column(align=True)
+        row = col.row(align=True)
+        row.enabled = setup.source_root is not None
+        row.operator("object.scs_tools_bake_setup_bake", text="Save, Export & Bake", icon='RENDER_STILL')
+        col.prop(context.scene.scs_props, "bake_on_export")
+
 
 class SCS_TOOLS_PT_LODBakerOptions(_ToolShelfBlDefs, Panel):
     """

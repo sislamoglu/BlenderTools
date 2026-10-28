@@ -122,8 +122,7 @@ The target is the SCS Root of the active object.
 
 The setup is saved into a baking setup file named after the target, **`<root name>.bake`**, beside the target's exported
 PIM file (custom export path of the root or the default export path). The file has the same format as the SCS Maya tools
-write, so setups can be edited in either tool, and it is what the SCS baker reads. Running the baker isn't part of the
-panel yet.
+write, so setups can be edited in either tool, and it is what the SCS baker reads.
 
 | Setting | Description |
 | --- | --- |
@@ -146,6 +145,41 @@ Buttons:
   texture height can't exceed 2048, source and target need the same looks and the target's parts must exist in the source.
   It also warns when source or target isn't exported yet.
 - **Delete** removes the `.bake` file after confirmation, so the root is no longer a baking target.
+- **Save, Export & Bake** saves the setup, stops if **Check** finds errors, then exports source and target and bakes
+  (see below). It bakes even when **Bake on Export** is off.
+
+### Baking on export
+
+With **Bake on Export** on (per scene, on by default), every export also bakes:
+
+1. After the export, baking setups are looked up in the export folders of the exported roots and in the export folders
+   of all SCS Roots in the scene.
+2. The SCS baker is run for every baking setup whose **source or target** was exported. A setup is baked only after the
+   setup that bakes its source, so LOD chains bake in order: exporting `truck` bakes `truck_lod1`, exports it again and
+   then bakes `truck_lod2` from it.
+3. Textures listed by the baker are assigned to the target's baked material, **per look**: `texture_base` (diffuse),
+   `texture_over` (specular), `texture_mask` (environment), `texture_mask_1` (paint mask), `texture_nmap` (normal map)
+   and `texture_lightmap`. A texture is skipped with a warning if the material doesn't have its flavor (`spec`,
+   `add.env`, `paint`, `tsnmap`, `day`). Textures of other color variants than the first one aren't assigned, the game
+   uses them automatically.
+4. The target is exported again with the baked textures. If the target isn't in the scene, textures are still baked
+   but not assigned.
+
+Baker messages and errors show in the export report. Exchange format (EF) export never bakes.
+
+Vehicle (paintable) baked materials don't need a separate shader: they are the `baked` shader preset with the **paint**
+flavor (`eut2.baked.spec.add.env.paint`), which Maya's old `eut2.baked.vehicle` viewport shader maps to as well.
+
+The baker is `bin/experiment_baking/baker.exe`, found automatically in a parent folder of the SCS Project Base Path, and
+it is run with the same arguments as the Maya tools. Its root is the path up to the first `base`, `base_vehicle`,
+`base_share`, `art_assets` or `dlc_*` folder, e.g. `mod_fmax/dlc_fmax`. That root has to be listed in the baker's
+`fstab`, or in a local `fstab.additional` beside it, for example:
+
+```
+mod_fmax/dlc_fmax rcfs mod
+```
+
+**Check** and the export report tell you when the baker isn't found or the root is missing.
 
 Color variants of the source model aren't written into the setup yet.
 

@@ -35,6 +35,7 @@ from io_scs_tools.internals import looks as _looks
 from io_scs_tools.internals.icons import get_icon as _get_icon
 from io_scs_tools.internals.connections.wrappers import collection as _connections_wrapper
 from io_scs_tools.internals.open_gl.storage import terrain_points as _terrain_points_storage
+from io_scs_tools.operators.bases.export import RootsExporter as _RootsExporter
 from io_scs_tools.operators.bases.export import SCSExportHelper as _SCSExportHelper
 from io_scs_tools.operators.bases.replace import Replace as _BaseReplaceOperator
 from io_scs_tools.operators.bases.selection import Selection as _BaseSelectionOperator
@@ -2885,9 +2886,10 @@ class Baker:
                 self.report({'ERROR'}, message)
                 return {'CANCELLED'}
 
+            # setup is saved, so problems are only warnings here
             messages = _baker_utils.get_check_messages(target_root, context.scene)
             if messages:
-                self.report_check_messages(messages)
+                self.report_check_messages([('WARNING', msg) for _, msg in messages])
                 self.report({'WARNING'}, "Baking setup saved, but it has %s problem(s)!" % len(messages))
             else:
                 self.report({'INFO'}, message)
@@ -2928,6 +2930,33 @@ class Baker:
             else:
                 self.report({'INFO'}, "Baking setup of %r is OK." % target_root.name)
             return {'FINISHED'}
+
+    class SCS_TOOLS_OT_BakeSetupBake(_BakeSetupOperator, bpy.types.Operator):
+        bl_label = "Bake"
+        bl_idname = "object.scs_tools_bake_setup_bake"
+        bl_description = ("Save baking setup, export source and target, run baker, assign baked textures to target "
+                          "per look and export target again")
+        bl_options = {'REGISTER'}
+
+        def execute(self, context):
+            target_root = _object_utils.get_scs_root(context.active_object)
+            source_root = target_root.scs_props.bake_setup.source_root
+
+            success, message = _baker_utils.save_setup(target_root)
+            if not success:
+                self.report({'ERROR'}, message)
+                return {'CANCELLED'}
+
+            errors = [(msg_type, msg) for msg_type, msg in _baker_utils.get_check_messages(target_root, context.scene)
+                      if msg_type == 'ERROR']
+            if errors:
+                self.report_check_messages(errors)
+                self.report({'ERROR'}, "Baking setup of %r has %s error(s), baking aborted!" % (target_root.name, len(errors)))
+                return {'CANCELLED'}
+
+            # baking itself is run by exporter once source and target are exported
+            exporter = _RootsExporter(self, (source_root, target_root), bake_forced=True)
+            return exporter.execute_export(context, True)
 
 
 class Animation:
@@ -3262,6 +3291,7 @@ classes = (
     Baker.SCS_TOOLS_OT_BakeSetupSave,
     Baker.SCS_TOOLS_OT_BakeSetupDelete,
     Baker.SCS_TOOLS_OT_BakeSetupCheck,
+    Baker.SCS_TOOLS_OT_BakeSetupBake,
 
     Collision.SCS_TOOLS_OT_SelectStaticCollisionObjects,
     Collision.SCS_TOOLS_OT_SwitchStaticCollisionObjects,
