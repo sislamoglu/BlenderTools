@@ -134,11 +134,21 @@ class SCSExportHelper:
             bpy.ops.object.mode_set(mode='OBJECT')
 
         # switch any remaining export object, which might be left in other mode while not being active
+        # (e.g. left in edit mode while other object was put to vertex paint mode).
+        # Mode switch works only on view layer active object (context override isn't enough for edit mode),
+        # so make each such object active for the switch and recover original active object afterwards.
+        view_layer = context.view_layer
+        orig_active_obj = view_layer.objects.active
         for obj in objs_to_export:
             if obj.mode == 'OBJECT':
                 continue
 
+            if obj.name not in view_layer.objects:
+                lprint("W Object %r is in %r mode, but it's not in current view layer, it will be skipped on export!", (obj.name, obj.mode))
+                continue
+
             try:
+                view_layer.objects.active = obj
                 with context.temp_override(active_object=obj, object=obj, selected_objects=[obj], selected_editable_objects=[obj]):
                     bpy.ops.object.mode_set(mode='OBJECT')
             except RuntimeError as e:
@@ -148,6 +158,9 @@ class SCSExportHelper:
                 lprint("W Object %r is still in %r mode and will be skipped on export!", (obj.name, obj.mode))
             else:
                 lprint("I Object %r was switched to object mode for export.", (obj.name,))
+
+        if view_layer.objects.active != orig_active_obj:
+            view_layer.objects.active = orig_active_obj
 
     def init(self):
         """Init routine to create export scene, link all exprt objects to it and unhide objects so they can be seen in preview and exported properly.
